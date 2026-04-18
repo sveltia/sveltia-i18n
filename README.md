@@ -388,6 +388,13 @@ Supports two call signatures (matching svelte-i18n):
 | `locale` | `string` | Override the active locale for this call only. If the key is not found in the override locale, the lookup still falls back to `fallbackLocale`. |
 | `default` | `string` | Fallback string if the key is not found in any locale. |
 
+Lookup order:
+
+1. Active locale
+2. Best-matching registered locale for `fallbackLocale` (e.g. `'en-US'` negotiates to `'en'` if only `'en'` is registered, and vice versa)
+3. `default` option value
+4. The key string itself
+
 ```js
 import { _, t } from '@sveltia/i18n';
 

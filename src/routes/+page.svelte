@@ -101,6 +101,9 @@
 <p>{_('nav.about')}</p>
 <p>{_('nav.contact')}</p>
 
+<h2>Fallback to fallbackLocale</h2>
+<p>{_('en-only')}</p>
+
 <h2>json()</h2>
 {#each Object.entries(json('nav') ?? {}) as [key, label] (key)}
   <p>{key}: {label}</p>
