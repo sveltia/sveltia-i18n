@@ -1280,6 +1280,18 @@ describe('json', () => {
     expect(() => json('')).toThrow(TypeError);
     expect(() => json(/** @type {any} */ (42))).toThrow(TypeError);
   });
+
+  it('merges fallback entries with active overriding per-key, ignoring non-matching keys', () => {
+    // 'fr' only has `nav.home`; other keys should fall back to 'en-US'.
+    // Also add an unrelated key in the fallback to exercise the `key.startsWith(pfx)` false branch.
+    addMessages('en-US', { footer: { copyright: '©' } });
+    addMessages('fr', { nav: { home: 'Accueil' } });
+    expect(json('nav', { locale: 'fr' })).toEqual({
+      home: 'Accueil',
+      about: 'About',
+      contact: 'Contact',
+    });
+  });
 });
 
 describe('json — empty dictionary', () => {

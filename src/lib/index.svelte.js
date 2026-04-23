@@ -213,7 +213,7 @@ const addMessages = (localeCode, ...maps) => {
   });
 
   registerLocaleCode(localeCode);
-  dictionary[localeCode] ??= Object.create(null);
+  dictionary[localeCode] ??= {};
 
   maps.forEach((map) => {
     Object.entries(flattenMessages(map)).forEach(([key, value]) => {
@@ -552,11 +552,19 @@ const json = (prefix, { locale: localeOverride } = {}) => {
 
   const active = localeOverride ?? _locale;
   const fallback = _resolvedFallback;
-  const source = dictionary[active] ?? dictionary[fallback] ?? {};
+  const activeDict = dictionary[active] ?? {};
+  const fallbackDict = active !== fallback ? (dictionary[fallback] ?? {}) : {};
   const pfx = `${prefix}.`;
   const result = /** @type {Record<string, string>} */ ({});
 
-  Object.entries(source).forEach(([key, mf]) => {
+  // Start with fallback entries, then overlay active so per-key fallback works.
+  Object.entries(fallbackDict).forEach(([key, mf]) => {
+    if (key.startsWith(pfx)) {
+      result[key.slice(pfx.length)] = mf.format({});
+    }
+  });
+
+  Object.entries(activeDict).forEach(([key, mf]) => {
     if (key.startsWith(pfx)) {
       result[key.slice(pfx.length)] = mf.format({});
     }
