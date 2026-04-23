@@ -642,14 +642,14 @@ const time = (value, options = {}) => formatDateTimeValue('time', value, options
 
 /**
  * Format a number as a localized string.
- * @param {number} value The number to format.
+ * @param {number | bigint} value The number to format.
  * @param {NumberFormatOptions} [options] Formatting options.
  * @returns {string} The formatted number string.
- * @throws {TypeError} If `value` is not a number.
+ * @throws {TypeError} If `value` is not a number or bigint.
  */
 const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
-  if (typeof value !== 'number') {
-    throw new TypeError(`number: value must be a number (got ${typeof value})`);
+  if (typeof value !== 'number' && typeof value !== 'bigint') {
+    throw new TypeError(`number: value must be a number or bigint (got ${typeof value})`);
   }
 
   const named = fmt ? (customFormats.number?.[fmt] ?? BUILT_IN_NUMBER_FORMATS[fmt] ?? {}) : {};
