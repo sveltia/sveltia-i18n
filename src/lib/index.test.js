@@ -350,6 +350,10 @@ describe('format / _', () => {
     expect(() => format(/** @type {any} */ (null))).toThrow(TypeError);
     expect(() => format(/** @type {any} */ (undefined))).toThrow(TypeError);
   });
+
+  it('throws when object-first signature has undefined id', () => {
+    expect(() => format(/** @type {any} */ ({ id: undefined }))).toThrow(TypeError);
+  });
 });
 
 describe('pluralization via :integer', () => {
@@ -1448,6 +1452,14 @@ describe('number() standalone formatter', () => {
   it('throws when value is not a number', () => {
     expect(() => number(/** @type {any} */ ('42'))).toThrow(TypeError);
     expect(() => number(/** @type {any} */ (null))).toThrow(TypeError);
+  });
+
+  it('formats a bigint value', () => {
+    expect(number(9007199254740993n)).toBe('9,007,199,254,740,993');
+  });
+
+  it('formats a bigint with a named format', () => {
+    expect(number(1_500_000_000_000n, { format: 'compactShort' })).toBe('1.5T');
   });
 });
 
