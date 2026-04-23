@@ -204,12 +204,12 @@ await locale.set('fr'); // switch to French, triggers any registered loader, upd
 
 `locale.set(value)` returns a `Promise<void>` that resolves once any loader registered for the new locale has finished loading. It also keeps `document.documentElement.lang` and `document.documentElement.dir` (`ltr`/`rtl`) in sync automatically.
 
-**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language subtag before falling back to the original value. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
+**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language subtag. If no match is found and `fallbackLocale` resolves to a registered locale, it falls back to that; otherwise the original value is kept. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
 
 ```js
-// locales registered: ['en-US', 'fr', 'ja']
-await locale.set('en-CA'); // locale.current → 'en-US'
-await locale.set('zh-TW'); // no match → locale.current stays 'zh-TW'
+// locales registered: ['en-US', 'fr', 'ja'], fallbackLocale: 'en-US'
+await locale.set('en-CA'); // language match → locale.current = 'en-US'
+await locale.set('zh-TW'); // no match → falls back to 'en-US'
 ```
 
 #### `getLocaleFromNavigator()`
@@ -427,7 +427,7 @@ json('nav'); // → { home: 'Home', about: 'About', contact: 'Contact' }
 json('unknown'); // → undefined
 ```
 
-When the active locale has no messages, `json()` falls back to the `fallbackLocale` dictionary, matching the same fallback behaviour as `format()`.
+Per-key fallback: keys missing from the active locale are filled in from `fallbackLocale`, matching the same per-key fallback behaviour as `format()`.
 
 In a Svelte template:
 
@@ -485,7 +485,7 @@ time(new Date('2026-01-23T15:04:00'), { format: 'medium' }); // → '3:04:00 PM'
 
 #### `number(value, options?)`
 
-Formats a number as a localized string. Equivalent to svelte-i18n’s `$number()`.
+Formats a number (or bigint) as a localized string. Equivalent to svelte-i18n’s `$number()`.
 
 Options accept any `Intl.NumberFormatOptions` plus:
 
@@ -500,6 +500,7 @@ import { number } from '@sveltia/i18n';
 number(1234567); // → '1,234,567'
 number(0.42, { format: 'percent' }); // → '42%'
 number(9.99, { style: 'currency', currency: 'USD' }); // → '$9.99'
+number(9007199254740993n); // bigint → '9,007,199,254,740,993'
 
 // Custom named format defined in init()
 // init({ formats: { number: { EUR: { style: 'currency', currency: 'EUR' } } } })
