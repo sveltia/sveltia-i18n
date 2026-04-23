@@ -104,6 +104,13 @@
 <h2>Fallback to fallbackLocale</h2>
 <p>{_('en-only')}</p>
 
+<h2>Per-call Locale Override</h2>
+<p>{_('nav.home', { locale: 'fr' })}</p>
+<p>{_('nav.home', { locale: 'ja' })}</p>
+
+<h2>Default for Missing Key</h2>
+<p>{_('missing.key', { default: 'Fallback text when key is missing' })}</p>
+
 <h2>json()</h2>
 {#each Object.entries(json('nav') ?? {}) as [key, label] (key)}
   <p>{key}: {label}</p>
@@ -114,6 +121,7 @@
 <p>{date(new Date('2026-01-23'), { format: 'long' })}</p>
 <p>{time(new Date('2026-01-23T15:04:00'), { format: 'short' })}</p>
 <p>{number(1234567.89)}</p>
+<p>{number(9007199254740993n)}</p>
 <p>{number(0.42, { format: 'percent' })}</p>
 <p>{number(9.99, { style: 'currency', currency: 'USD' })}</p>
 <p>{_({ id: 'today', values: { date: new Date('2026-01-23') } })}</p>
