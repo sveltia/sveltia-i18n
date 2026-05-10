@@ -128,6 +128,27 @@ describe('isRTL', () => {
     locale.set('!!!invalid!!!');
     expect(isRTL()).toBe(false);
   });
+
+  it('accepts an explicit locale argument (RTL)', () => {
+    expect(isRTL('ar')).toBe(true);
+    expect(isRTL('he')).toBe(true);
+  });
+
+  it('accepts an explicit locale argument (LTR)', () => {
+    expect(isRTL('en-US')).toBe(false);
+    expect(isRTL('ja')).toBe(false);
+  });
+
+  it('explicit locale overrides the active locale', () => {
+    locale.set('ar');
+    expect(isRTL('en-US')).toBe(false);
+    locale.set('en-US');
+    expect(isRTL('ar')).toBe(true);
+  });
+
+  it('returns false for an invalid explicit locale tag', () => {
+    expect(isRTL('!!!invalid!!!')).toBe(false);
+  });
 });
 
 describe('getLocaleFromNavigator', () => {

@@ -15,7 +15,7 @@ An internationalization (i18n) library for Svelte applications. Heavily inspired
     - [`locales`](#locales)
     - [`dictionary`](#dictionary)
     - [`isLoading()`](#isloading)
-    - [`isRTL()`](#isrtl)
+    - [`isRTL(locale?)`](#isrtllocale)
   - [Locale](#locale)
     - [`locale`](#locale-1)
     - [`getLocaleFromNavigator()`](#getlocalefromnavigator)
@@ -172,13 +172,15 @@ if (isLoading()) return; // messages still loading
 
 ---
 
-#### `isRTL()`
+#### `isRTL(locale?)`
 
-Returns `true` when the current locale is written right-to-left (e.g. Arabic, Hebrew, Persian). Reactive: re-evaluates automatically whenever the locale changes.
+Returns `true` when the given locale (or the current locale if omitted) is written right-to-left (e.g. Arabic, Hebrew, Persian). Reactive: re-evaluates automatically whenever the locale changes.
 
 ```js
 import { isRTL } from '@sveltia/i18n';
 if (isRTL()) console.log('RTL layout active');
+isRTL('ar'); // → true, regardless of the active locale
+isRTL('en-US'); // → false
 ```
 
 In a Svelte template:
@@ -700,7 +702,7 @@ Sveltia I18n is designed to be a modern alternative to [svelte-i18n](https://git
 | `$number()` | `number()` | Identical signature and named formats (`currency`, `percent`, `scientific`, `engineering`, `compactLong`, `compactShort`). |
 | `$locale` | `locale` / `locale.current` | Reactive object instead of a Svelte store. Use `locale.current` to read and `locale.set(value)` to write. |
 | `$isLoading` | `isLoading()` | Function instead of a store. |
-| N/A | `isRTL()` | Returns `true` when the current locale is RTL. No svelte-i18n equivalent. |
+| N/A | `isRTL(locale?)` | Returns `true` when the given locale (or the current locale) is RTL. No svelte-i18n equivalent. |
 | `$locales` | `locales` | Reactive array instead of a store. |
 | `$dictionary` | `dictionary` | Reactive object instead of a store. |
 | `init()` | `init()` | Identical option names. `initialLocale` and `formats` are supported. |

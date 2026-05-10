@@ -112,15 +112,16 @@ const getTextDirection = (localeObj) => {
 };
 
 /**
- * Whether the current locale is written right-to-left. Reactive: re-evaluates whenever the locale
- * changes.
- * @returns {boolean} `true` if the active locale is RTL, `false` otherwise.
+ * Whether the given locale (or the current locale if omitted) is written right-to-left. Reactive:
+ * re-evaluates automatically whenever the locale changes.
+ * @param {string} [localeCode] Locale to check. Defaults to the active locale.
+ * @returns {boolean} `true` if the locale is RTL, `false` otherwise.
  */
-const isRTL = () => {
-  if (!_locale) return false;
+const isRTL = (localeCode = _locale) => {
+  if (!localeCode) return false;
 
   try {
-    return getTextDirection(new Intl.Locale(_locale)) === 'rtl';
+    return getTextDirection(new Intl.Locale(localeCode)) === 'rtl';
   } catch {
     return false;
   }
