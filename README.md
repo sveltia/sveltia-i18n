@@ -55,7 +55,7 @@ An internationalization (i18n) library for Svelte applications. Heavily inspired
 
 We had used [Svelte-i18n](https://github.com/kaisermann/svelte-i18n) in our [Sveltia CMS](https://github.com/sveltia/sveltia-cms) for years, appreciating its simplicity and Svelte-native API. However, we wanted to address a significant limitation: the absence of pluralization support. This required us to write logic in our Svelte templates and JavaScript code rather than in our locale files. As we expand our products to more languages, we need a more powerful i18n solution that can handle complex pluralization rules and selection patterns.
 
-Sveltia I18n is the answer: a modern i18n library for Svelte that utilizes Svelte 5 Runes for a clean and efficient API and supports the full capabilities of [Unicode MessageFormat 2](https://messageformat.unicode.org/) (MF2). This allows us to keep all our localization logic in our locale files, making it easier to manage translations and support a wider range of languages with complex pluralization rules.
+Sveltia I18n is the answer: a modern i18n library for Svelte that utilizes Svelte 5 Runes for a clean and efficient API and supports the full capabilities of [Unicode MessageFormat 2](https://messageformat.unicode.org/) (MF2). This allows us to keep all our localization logic in our locale files, making it easier to manage translations in any language.
 
 ## Installation
 
