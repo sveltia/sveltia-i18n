@@ -522,6 +522,10 @@ number(9.99, { format: 'EUR' }); // → '€9.99'
 
 Locale files use [MF2 syntax](https://messageformat.unicode.org/). Single-pattern messages can be written as plain YAML strings; multi-pattern messages use YAML block scalars.
 
+Note that using YAML is optional; you can use any format as long as you pass the message strings to [`addMessages`](#addmessageslocalecode-maps). We use YAML for its readability and support for multi-line strings, but you could just as easily use JSON, JavaScript modules, or even a custom format.
+
+Sveltia I18n doesn’t bundle a YAML parser, so you need to provide your own (e.g. `yaml` or `js-yaml`) if you want to use YAML files.
+
 ### Simple interpolation
 
 ```yaml
