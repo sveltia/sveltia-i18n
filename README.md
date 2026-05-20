@@ -610,6 +610,26 @@ notifications: |
 
 <!-- cSpell:enable -->
 
+Some languages, such as Chinese and Japanese, do not have a plural form. The same word is used for all quantities, except for zero.
+
+```yaml
+# zh-CN.yaml
+notifications: |
+  .input {$count :integer}
+  .match $count
+    0 {{你没有通知。}}
+    * {{你有 {$count} 条通知。}}
+```
+
+```yaml
+# ja.yaml
+notifications: |
+  .input {$count :integer}
+  .match $count
+    0 {{通知はありません。}}
+    * {{{$count} 件の通知があります。}}
+```
+
 ### Ordinal numbers
 
 English ordinal suffixes (`1st`, `2nd`, `3rd`, `4th`, …):
