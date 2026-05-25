@@ -1,6 +1,6 @@
 {
   "name": "@sveltia/i18n",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "An internationalization (i18n) library for Svelte applications that uses Unicode MessageFormat 2 (MF2) to format messages.",
   "keywords": [
     "svelte",
