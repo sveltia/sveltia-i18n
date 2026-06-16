@@ -75,7 +75,7 @@ import { _, addMessages, init, locale, register, waitLocale } from '@sveltia/i18
 
 <!-- prettier-ignore-start -->
 > [!WARNING]
-> Using Sveltia I18n with SvelteKit’s SSR is **unsafe in high-traffic environments**. The library stores locale state in a singleton that is shared across all requests on the server. This can cause state leakage between concurrent requests, resulting in users seeing content in incorrect languages. This issue only manifests under heavy load, making it difficult to detect during development. **We recommend using client-side locale detection instead** (see below).
+> Using Sveltia I18n with SvelteKit’s SSR is **unsafe in high-traffic environments**. The library stores locale state in a singleton that is shared across all requests on the server. This can cause state leakage between concurrent requests, resulting in users seeing content in incorrect languages. This issue only manifests under heavy load, making it difficult to detect during development. **We recommend using client-side locale detection instead** (see below and issue [#2](https://github.com/sveltia/sveltia-i18n/issues/2)).
 <!-- prettier-ignore-end -->
 
 If you must use SSR despite these risks, you can register loaders in a shared module and await them in the root layout’s `load` function:
