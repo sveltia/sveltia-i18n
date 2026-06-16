@@ -73,7 +73,12 @@ import { _, addMessages, init, locale, register, waitLocale } from '@sveltia/i18
 
 ### Async loading with SSR
 
-Register loaders in a shared module, then await them in the root layout’s `load` function:
+<!-- prettier-ignore-start -->
+> [!WARNING]
+> Using Sveltia I18n with SvelteKit’s SSR is **unsafe in high-traffic environments**. The library stores locale state in a singleton that is shared across all requests on the server. This can cause state leakage between concurrent requests, resulting in users seeing content in incorrect languages. This issue only manifests under heavy load, making it difficult to detect during development. **We recommend using client-side locale detection instead** (see below).
+<!-- prettier-ignore-end -->
+
+If you must use SSR despite these risks, you can register loaders in a shared module and await them in the root layout’s `load` function:
 
 ```js
 // src/lib/i18n.js
@@ -99,7 +104,12 @@ export const load = async () => {
 
 ### Server-side locale via `Accept-Language`
 
-Read the request header in a server hook and set the locale before rendering:
+<!-- prettier-ignore-start -->
+> [!WARNING]
+> This approach is **not recommended** and suffers from the same state-sharing issues described above. Server-side state mutations can leak across concurrent requests in high-traffic environments, causing users to see content in incorrect languages.
+<!-- prettier-ignore-end -->
+
+If you still choose to use this method despite the risks:
 
 ```js
 // src/hooks.server.js
@@ -114,7 +124,7 @@ export const handle = async ({ event, resolve }) => {
 
 ### Client-side locale detection
 
-For client-only apps (no SSR), detect the locale directly from the browser environment and call `locale.set()` in `onMount` or in a `+layout.js` `load` function guarded by `browser`:
+For client-only Svelte apps (no SSR), or for SvelteKit apps using the [`ssr = false` page option](https://svelte.dev/docs/kit/page-options#ssr) or the [static adapter](https://svelte.dev/docs/kit/adapter-static), detect the locale directly from the browser environment and call `locale.set()` in `onMount` or in a `+layout.js` `load` function guarded by `browser`. This approach avoids all server-side state-sharing issues:
 
 ```js
 // src/routes/+layout.js
