@@ -4,5 +4,5 @@ reject:
   # https://github.com/eslint-config/airbnb-extended/issues/65
   - eslint
   - "@eslint/js"
-  # Updating to TypeScript 6 is blocked by Svelte, which currently supports up to TypeScript 5.9
+  # Updating to TypeScript 7 is blocked by Svelte
   - typescript
