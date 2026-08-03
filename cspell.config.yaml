@@ -21,6 +21,8 @@ ignorePaths:
 words:
   - Bonjour
   - cooldown
+  - GHSA
+  - Ghsas
   - Kohei
   - messageformat
   - oxlint
