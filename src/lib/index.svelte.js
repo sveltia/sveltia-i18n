@@ -130,6 +130,57 @@ let customFunctions = {};
  */
 let messageFormats;
 
+// --- Validation ---
+
+/**
+ * Throw a `TypeError` if the given value is not a non-empty string.
+ * @param {string} label Argument label used in the error message, e.g. `addMessages: localeCode`.
+ * @param {unknown} value Value to check.
+ * @throws {TypeError} If `value` is not a non-empty string.
+ */
+const assertNonEmptyString = (label, value) => {
+  if (typeof value !== 'string' || !value) {
+    throw new TypeError(`${label} must be a non-empty string (got ${JSON.stringify(value)})`);
+  }
+};
+
+/**
+ * Throw a `TypeError` if the given value is not a string. Unlike {@link assertNonEmptyString}, an
+ * empty string is accepted.
+ * @param {string} label Argument label used in the error message.
+ * @param {unknown} value Value to check.
+ * @throws {TypeError} If `value` is not a string.
+ */
+const assertString = (label, value) => {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${label} must be a string (got ${typeof value})`);
+  }
+};
+
+/**
+ * Throw a `TypeError` if the given value is not a function.
+ * @param {string} label Argument label used in the error message.
+ * @param {unknown} value Value to check.
+ * @throws {TypeError} If `value` is not a function.
+ */
+const assertFunction = (label, value) => {
+  if (typeof value !== 'function') {
+    throw new TypeError(`${label} must be a function (got ${typeof value})`);
+  }
+};
+
+/**
+ * Throw a `TypeError` if the given value is not a `RegExp`.
+ * @param {string} label Argument label used in the error message.
+ * @param {unknown} value Value to check.
+ * @throws {TypeError} If `value` is not a `RegExp`.
+ */
+const assertRegExp = (label, value) => {
+  if (!(value instanceof RegExp)) {
+    throw new TypeError(`${label} must be a RegExp (got ${typeof value})`);
+  }
+};
+
 // --- Messages ---
 
 /**
@@ -193,6 +244,17 @@ const registerLocaleCode = (localeCode) => {
 };
 
 /**
+ * Re-negotiate the active locale if `locale.set()` was called before any locales were registered.
+ * Shared by {@link addMessages} and {@link register}.
+ */
+const renegotiateActiveLocale = () => {
+  if (_locale && !locales.includes(_locale)) {
+    // eslint-disable-next-line no-use-before-define
+    locale.set(_locale);
+  }
+};
+
+/**
  * Add new messages for a locale. Accepts flat or nested maps; nested objects are flattened to
  * dot-separated keys (`field.name`). Multiple dicts can be passed and are merged in order, matching
  * svelte-i18n’s `addMessages(locale, ...dicts)` signature.
@@ -202,11 +264,7 @@ const registerLocaleCode = (localeCode) => {
  * @see https://messageformat.github.io/modules/messageformat.html
  */
 const addMessages = (localeCode, ...maps) => {
-  if (typeof localeCode !== 'string' || !localeCode) {
-    throw new TypeError(
-      `addMessages: localeCode must be a non-empty string (got ${JSON.stringify(localeCode)})`,
-    );
-  }
+  assertNonEmptyString('addMessages: localeCode', localeCode);
 
   maps.forEach((map, i) => {
     if (map === null || typeof map !== 'object' || Array.isArray(map)) {
@@ -219,21 +277,19 @@ const addMessages = (localeCode, ...maps) => {
   registerLocaleCode(localeCode);
   dictionary[localeCode] ??= {};
 
+  const messages = dictionary[localeCode];
+  // Custom functions come last so they can replace a built-in of the same name. Resolved once per
+  // call: `customFunctions` cannot change while the maps below are compiled.
+  // eslint-disable-next-line no-use-before-define
+  const functions = { ...MESSAGE_FUNCTIONS, ...customFunctions };
+
   maps.forEach((map) => {
     Object.entries(flattenMessages(map)).forEach(([key, value]) => {
-      dictionary[localeCode][key] = new Intl.MessageFormat(localeCode, String(value), {
-        // Custom functions come last so they can replace a built-in of the same name.
-        // eslint-disable-next-line no-use-before-define
-        functions: { ...MESSAGE_FUNCTIONS, ...customFunctions },
-      });
+      messages[key] = new Intl.MessageFormat(localeCode, String(value), { functions });
     });
   });
 
-  // Re-negotiate if locale.set() was called before any locales were registered.
-  if (_locale && !locales.includes(_locale)) {
-    // eslint-disable-next-line no-use-before-define
-    locale.set(_locale);
-  }
+  renegotiateActiveLocale();
 };
 
 // --- Loader ---
@@ -251,9 +307,7 @@ const loaderPromises = new SvelteMap();
  * @throws {TypeError} If `localeCode` is provided and is not a string.
  */
 const waitLocale = (localeCode = _locale) => {
-  if (typeof localeCode !== 'string') {
-    throw new TypeError(`waitLocale: localeCode must be a string (got ${typeof localeCode})`);
-  }
+  assertString('waitLocale: localeCode', localeCode);
 
   if (!localeCode) return Promise.resolve();
 
@@ -319,9 +373,7 @@ const locale = {
    * @throws {TypeError} If `value` is not a string.
    */
   set(value) {
-    if (typeof value !== 'string') {
-      throw new TypeError(`locale.set: value must be a string (got ${typeof value})`);
-    }
+    assertString('locale.set: value', value);
 
     let resolved = locales.length ? negotiateLocale(value, locales) : value;
 
@@ -368,15 +420,8 @@ const locale = {
  * @see https://messageformat.github.io/modules/messageformat_functions.html
  */
 const registerMessageFunction = (name, fn) => {
-  if (typeof name !== 'string' || !name) {
-    throw new TypeError(
-      `registerMessageFunction: name must be a non-empty string (got ${JSON.stringify(name)})`,
-    );
-  }
-
-  if (typeof fn !== 'function') {
-    throw new TypeError(`registerMessageFunction: fn must be a function (got ${typeof fn})`);
-  }
+  assertNonEmptyString('registerMessageFunction: name', name);
+  assertFunction('registerMessageFunction: fn', fn);
 
   customFunctions[name] = fn;
 };
@@ -389,26 +434,15 @@ const registerMessageFunction = (name, fn) => {
  * @throws {TypeError} If `localeCode` is not a non-empty string or `loader` is not a function.
  */
 const register = (localeCode, loader) => {
-  if (typeof localeCode !== 'string' || !localeCode) {
-    throw new TypeError(
-      `register: localeCode must be a non-empty string (got ${JSON.stringify(localeCode)})`,
-    );
-  }
-
-  if (typeof loader !== 'function') {
-    throw new TypeError(`register: loader must be a function (got ${typeof loader})`);
-  }
+  assertNonEmptyString('register: localeCode', localeCode);
+  assertFunction('register: loader', loader);
 
   loaderQueue.set(localeCode, loader);
   // Invalidate any cached promise so the new loader is picked up on next waitLocale call.
   loaderPromises.delete(localeCode);
 
   registerLocaleCode(localeCode);
-
-  // Re-negotiate if locale.set() was called before any locales were registered.
-  if (_locale && !locales.includes(_locale)) {
-    locale.set(_locale);
-  }
+  renegotiateActiveLocale();
 };
 
 /**
@@ -420,23 +454,51 @@ const getLocaleFromNavigator = () =>
   typeof navigator === 'undefined' ? undefined : (navigator.languages?.[0] ?? navigator.language);
 
 /**
+ * Shared implementation for {@link getLocaleFromHostname} and {@link getLocaleFromPathname}.
+ * @param {'hostname' | 'pathname'} part Part of `window.location` to match against.
+ * @param {string} label Argument label used in the error message.
+ * @param {RegExp} pattern Pattern with a capture group for the locale code.
+ * @returns {string | undefined} The matched locale code, or `undefined` if not in a browser or no
+ * match.
+ * @throws {TypeError} If `pattern` is not a `RegExp`.
+ */
+const getLocaleFromLocation = (part, label, pattern) => {
+  assertRegExp(label, pattern);
+
+  return typeof window === 'undefined' || !window.location
+    ? undefined
+    : window.location[part].match(pattern)?.[1];
+};
+
+/**
+ * Shared implementation for {@link getLocaleFromQueryString} and {@link getLocaleFromHash}.
+ * @param {'search' | 'hash'} part Part of `window.location` to parse as a query string.
+ * @param {string} label Argument label used in the error message.
+ * @param {string} key The key to read.
+ * @returns {string | undefined} The parameter value, or `undefined` if not in a browser or not
+ * found.
+ * @throws {TypeError} If `key` is not a non-empty string.
+ */
+const getLocaleFromLocationParams = (part, label, key) => {
+  assertNonEmptyString(label, key);
+
+  if (typeof window === 'undefined' || !window.location) return undefined;
+
+  // The hash may carry a leading `#`, which is not part of the query string.
+  const query = part === 'hash' ? window.location.hash.replace(/^#/, '') : window.location.search;
+
+  return new SvelteURLSearchParams(query).get(key) ?? undefined;
+};
+
+/**
  * Get the locale from a pattern matched against `window.location.hostname`.
  * @param {RegExp} hostnamePattern Pattern with a capture group for the locale code.
  * @returns {string | undefined} The matched locale code, or `undefined` if not in a browser or no
  * match.
  * @throws {TypeError} If `hostnamePattern` is not a `RegExp`.
  */
-const getLocaleFromHostname = (hostnamePattern) => {
-  if (!(hostnamePattern instanceof RegExp)) {
-    throw new TypeError(
-      `getLocaleFromHostname: hostnamePattern must be a RegExp (got ${typeof hostnamePattern})`,
-    );
-  }
-
-  return typeof window === 'undefined' || !window.location
-    ? undefined
-    : window.location.hostname.match(hostnamePattern)?.[1];
-};
+const getLocaleFromHostname = (hostnamePattern) =>
+  getLocaleFromLocation('hostname', 'getLocaleFromHostname: hostnamePattern', hostnamePattern);
 
 /**
  * Get the locale from a pattern matched against `window.location.pathname`.
@@ -445,17 +507,8 @@ const getLocaleFromHostname = (hostnamePattern) => {
  * match.
  * @throws {TypeError} If `pathnamePattern` is not a `RegExp`.
  */
-const getLocaleFromPathname = (pathnamePattern) => {
-  if (!(pathnamePattern instanceof RegExp)) {
-    throw new TypeError(
-      `getLocaleFromPathname: pathnamePattern must be a RegExp (got ${typeof pathnamePattern})`,
-    );
-  }
-
-  return typeof window === 'undefined' || !window.location
-    ? undefined
-    : window.location.pathname.match(pathnamePattern)?.[1];
-};
+const getLocaleFromPathname = (pathnamePattern) =>
+  getLocaleFromLocation('pathname', 'getLocaleFromPathname: pathnamePattern', pathnamePattern);
 
 /**
  * Get the locale from a URL query string parameter.
@@ -464,18 +517,8 @@ const getLocaleFromPathname = (pathnamePattern) => {
  * not found.
  * @throws {TypeError} If `queryKey` is not a non-empty string.
  */
-const getLocaleFromQueryString = (queryKey) => {
-  if (typeof queryKey !== 'string' || !queryKey) {
-    throw new TypeError(
-      // eslint-disable-next-line max-len
-      `getLocaleFromQueryString: queryKey must be a non-empty string (got ${JSON.stringify(queryKey)})`,
-    );
-  }
-
-  return typeof window === 'undefined' || !window.location
-    ? undefined
-    : (new SvelteURLSearchParams(window.location.search).get(queryKey) ?? undefined);
-};
+const getLocaleFromQueryString = (queryKey) =>
+  getLocaleFromLocationParams('search', 'getLocaleFromQueryString: queryKey', queryKey);
 
 /**
  * Get the locale from a `key=value` pair in `window.location.hash`.
@@ -484,19 +527,8 @@ const getLocaleFromQueryString = (queryKey) => {
  * found.
  * @throws {TypeError} If `hashKey` is not a non-empty string.
  */
-const getLocaleFromHash = (hashKey) => {
-  if (typeof hashKey !== 'string' || !hashKey) {
-    throw new TypeError(
-      `getLocaleFromHash: hashKey must be a non-empty string (got ${JSON.stringify(hashKey)})`,
-    );
-  }
-
-  if (typeof window === 'undefined' || !window.location) return undefined;
-
-  const params = new SvelteURLSearchParams(window.location.hash.replace(/^#/, ''));
-
-  return params.get(hashKey) ?? undefined;
-};
+const getLocaleFromHash = (hashKey) =>
+  getLocaleFromLocationParams('hash', 'getLocaleFromHash: hashKey', hashKey);
 
 // --- Configuration ---
 
@@ -521,14 +553,12 @@ const init = (args) => {
     );
   }
 
-  if (args.initialLocale !== undefined && typeof args.initialLocale !== 'string') {
-    throw new TypeError(`init: initialLocale must be a string (got ${typeof args.initialLocale})`);
+  if (args.initialLocale !== undefined) {
+    assertString('init: initialLocale', args.initialLocale);
   }
 
-  if (args.handleMissingMessage !== undefined && typeof args.handleMissingMessage !== 'function') {
-    throw new TypeError(
-      `init: handleMissingMessage must be a function (got ${typeof args.handleMissingMessage})`,
-    );
+  if (args.handleMissingMessage !== undefined) {
+    assertFunction('init: handleMissingMessage', args.handleMissingMessage);
   }
 
   fallbackLocale = args.fallbackLocale;
@@ -605,9 +635,7 @@ const format = (
  * @throws {TypeError} If `prefix` is not a non-empty string.
  */
 const json = (prefix, { locale: localeOverride } = {}) => {
-  if (typeof prefix !== 'string' || !prefix) {
-    throw new TypeError(`json: prefix must be a non-empty string (got ${JSON.stringify(prefix)})`);
-  }
+  assertNonEmptyString('json: prefix', prefix);
 
   const active = localeOverride ?? _locale;
   const fallback = _resolvedFallback;
@@ -616,18 +644,21 @@ const json = (prefix, { locale: localeOverride } = {}) => {
   const pfx = `${prefix}.`;
   const result = /** @type {Record<string, string>} */ ({});
 
-  // Start with fallback entries, then overlay active so per-key fallback works.
-  Object.entries(fallbackDict).forEach(([key, mf]) => {
-    if (key.startsWith(pfx)) {
-      result[key.slice(pfx.length)] = mf.format({});
-    }
-  });
+  /**
+   * Format every message under the prefix into `result`, keyed by the suffix.
+   * @param {Record<string, Intl.MessageFormat>} messages Messages for one locale.
+   */
+  const collect = (messages) => {
+    Object.entries(messages).forEach(([key, mf]) => {
+      if (key.startsWith(pfx)) {
+        result[key.slice(pfx.length)] = mf.format({});
+      }
+    });
+  };
 
-  Object.entries(activeDict).forEach(([key, mf]) => {
-    if (key.startsWith(pfx)) {
-      result[key.slice(pfx.length)] = mf.format({});
-    }
-  });
+  // Start with fallback entries, then overlay active so per-key fallback works.
+  collect(fallbackDict);
+  collect(activeDict);
 
   return Object.keys(result).length ? result : undefined;
 };
@@ -686,6 +717,19 @@ const getNamedPreset = (kind, name) =>
   customFormats[/** @type {keyof Formats} */ (kind)]?.[name] ?? BUILT_IN_FORMATS[kind]?.[name];
 
 /**
+ * Resolve the preset for a standalone {@link date}, {@link time} or {@link number} call: the named
+ * preset requested with the `format` option, falling back to the group’s `_default` preset.
+ * @param {'number' | 'date' | 'time'} kind One of `number`, `date` or `time`.
+ * @param {string} [name] Preset name from the `format` option, if any.
+ * @returns {DateFormatPreset | NumberFormatPreset} The preset, or an empty object if neither the
+ * call nor `init({ formats })` provides one.
+ */
+const getCallPreset = (kind, name) =>
+  (name ? getNamedPreset(kind, name) : undefined) ??
+  customFormats[kind]?.[DEFAULT_FORMAT_KEY] ??
+  {};
+
+/**
  * Resolve the preset that should override an MF2 function, preferring an override passed to the
  * current {@link format} call and falling back to the group’s `_default` preset.
  * @param {string} kind One of `number`, `date`, `time` or `datetime`.
@@ -727,14 +771,16 @@ const overrideMessageValue = (mv, formatter, presetLocale) => {
 };
 
 /**
- * Wrap an MF2 date/time function so a preset selected for the current {@link format} call replaces
- * the options it resolved.
+ * Wrap an MF2 function so a preset selected for the current {@link format} call replaces the
+ * options it resolved.
  * @param {any} fn The MF2 function to wrap.
- * @param {'date' | 'time' | 'datetime'} kind Format kind to look up.
+ * @param {'number' | 'date' | 'time' | 'datetime'} kind Format kind to look up.
+ * @param {typeof Intl.DateTimeFormat | typeof Intl.NumberFormat} Formatter Formatter to build from
+ * the preset.
  * @returns {any} The wrapped function.
  */
-const wrapDateTimeFunction =
-  (fn, kind) =>
+const wrapMessageFunction =
+  (fn, kind, Formatter) =>
   (/** @type {any} */ ctx, /** @type {any} */ options, /** @type {any} */ operand) => {
     const mv = fn(ctx, options, operand);
     const preset = getMessagePreset(kind);
@@ -745,29 +791,7 @@ const wrapDateTimeFunction =
 
     return overrideMessageValue(
       mv,
-      new Intl.DateTimeFormat(presetLocale ?? ctx.locales, rest),
-      presetLocale,
-    );
-  };
-
-/**
- * Wrap an MF2 number function so a preset selected for the current {@link format} call replaces the
- * options it resolved.
- * @param {any} fn The MF2 function to wrap.
- * @returns {any} The wrapped function.
- */
-const wrapNumberFunction =
-  (fn) => (/** @type {any} */ ctx, /** @type {any} */ options, /** @type {any} */ operand) => {
-    const mv = fn(ctx, options, operand);
-    const preset = getMessagePreset('number');
-
-    if (!preset) return mv;
-
-    const { locale: presetLocale, ...rest } = preset;
-
-    return overrideMessageValue(
-      mv,
-      new Intl.NumberFormat(presetLocale ?? ctx.locales, rest),
+      new /** @type {any} */ (Formatter)(presetLocale ?? ctx.locales, rest),
       presetLocale,
     );
   };
@@ -775,15 +799,16 @@ const wrapNumberFunction =
 /**
  * MF2 functions used to compile messages. `:number` and `:integer` come from `DefaultFunctions`;
  * `DraftFunctions` does not define them, and the `functions` option is layered over the defaults,
- * so wrapping the wrong source would shadow them with `undefined`.
+ * so wrapping the wrong source would shadow them with `undefined`. `:integer` looks up the
+ * `number` presets, like `Intl.MessageFormat` itself.
  */
 const MESSAGE_FUNCTIONS = {
   ...DraftFunctions,
-  date: wrapDateTimeFunction(DraftFunctions.date, 'date'),
-  time: wrapDateTimeFunction(DraftFunctions.time, 'time'),
-  datetime: wrapDateTimeFunction(DraftFunctions.datetime, 'datetime'),
-  number: wrapNumberFunction(DefaultFunctions.number),
-  integer: wrapNumberFunction(DefaultFunctions.integer),
+  date: wrapMessageFunction(DraftFunctions.date, 'date', Intl.DateTimeFormat),
+  time: wrapMessageFunction(DraftFunctions.time, 'time', Intl.DateTimeFormat),
+  datetime: wrapMessageFunction(DraftFunctions.datetime, 'datetime', Intl.DateTimeFormat),
+  number: wrapMessageFunction(DefaultFunctions.number, 'number', Intl.NumberFormat),
+  integer: wrapMessageFunction(DefaultFunctions.integer, 'number', Intl.NumberFormat),
 };
 
 /**
@@ -801,11 +826,7 @@ const formatDateTimeValue = (kind, value, options = {}) => {
     throw new TypeError(`${kind}: value must be a Date instance (got ${typeof value})`);
   }
 
-  const defaults = customFormats[kind]?.[DEFAULT_FORMAT_KEY];
-
-  const { locale: presetLocale, ...named } = fmt
-    ? (getNamedPreset(kind, fmt) ?? defaults ?? {})
-    : (defaults ?? {});
+  const { locale: presetLocale, ...named } = getCallPreset(kind, fmt);
 
   return new Intl.DateTimeFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(
     value,
@@ -841,11 +862,7 @@ const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
     throw new TypeError(`number: value must be a number or bigint (got ${typeof value})`);
   }
 
-  const defaults = customFormats.number?.[DEFAULT_FORMAT_KEY];
-
-  const { locale: presetLocale, ...named } = fmt
-    ? (getNamedPreset('number', fmt) ?? defaults ?? {})
-    : (defaults ?? {});
+  const { locale: presetLocale, ...named } = getCallPreset('number', fmt);
 
   return new Intl.NumberFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(value);
 };
