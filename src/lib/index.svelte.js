@@ -1,5 +1,5 @@
 import { MessageFormat } from 'messageformat';
-import { DefaultFunctions, DraftFunctions } from 'messageformat/functions';
+import { DefaultFunctions, DraftFunctions, getLocaleDir } from 'messageformat/functions';
 import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 
 // Polyfill
@@ -129,57 +129,6 @@ let customFunctions = {};
  * @type {MessageFormats | undefined}
  */
 let messageFormats;
-
-// Languages written right-to-left; used as a fallback when Intl.Locale.textInfo is not available
-// (e.g. Firefox).
-const RTL_LANGS = new Set([
-  'ar',
-  'arc',
-  'ckb',
-  'dv',
-  'fa',
-  'ha',
-  'he',
-  'khw',
-  'ks',
-  'ku',
-  'nqo',
-  'ps',
-  'sd',
-  'ug',
-  'ur',
-  'yi',
-]);
-
-/**
- * Return the text direction for a resolved `Intl.Locale` object. Uses `textInfo.direction` when
- * available (Chrome/Safari) and falls back to the `RTL_LANGS` set (Firefox).
- * @param {Intl.Locale} localeObj The locale object to inspect.
- * @returns {'ltr' | 'rtl'} The text direction of the locale.
- */
-const getTextDirection = (localeObj) => {
-  /* v8 ignore next */
-  const dir = /** @type {any} */ (localeObj).textInfo?.direction;
-
-  /* v8 ignore next */
-  return dir ?? (RTL_LANGS.has(localeObj.language) ? 'rtl' : 'ltr');
-};
-
-/**
- * Whether the given locale (or the current locale if omitted) is written right-to-left. Reactive:
- * re-evaluates automatically whenever the locale changes.
- * @param {string} [localeCode] Locale to check. Defaults to the active locale.
- * @returns {boolean} `true` if the locale is RTL, `false` otherwise.
- */
-const isRTL = (localeCode = _locale) => {
-  if (!localeCode) return false;
-
-  try {
-    return getTextDirection(new Intl.Locale(localeCode)) === 'rtl';
-  } catch {
-    return false;
-  }
-};
 
 // --- Messages ---
 
@@ -340,6 +289,18 @@ const waitLocale = (localeCode = _locale) => {
 // --- Locale ---
 
 /**
+ * Whether the given locale (or the current locale if omitted) is written right-to-left. Reactive:
+ * re-evaluates automatically whenever the locale changes.
+ *
+ * `getLocaleDir()` reads `Intl.Locale`’s `getTextInfo()`/`textInfo` when available (Chrome/Safari),
+ * falls back to the maximized script subtag (Firefox), and returns `'auto'` for an empty or invalid
+ * tag.
+ * @param {string} [localeCode] Locale to check. Defaults to the active locale.
+ * @returns {boolean} `true` if the locale is RTL, `false` otherwise.
+ */
+const isRTL = (localeCode = _locale) => getLocaleDir(localeCode) === 'rtl';
+
+/**
  * Current locale.
  */
 const locale = {
@@ -381,12 +342,12 @@ const locale = {
     if (typeof document !== 'undefined' && resolved) {
       document.documentElement.lang = resolved;
 
-      try {
-        const localeObj = new Intl.Locale(resolved);
+      const dir = getLocaleDir(resolved);
 
-        document.documentElement.dir = getTextDirection(localeObj);
-      } catch {
-        // resolved is not a valid BCP 47 tag; skip dir update
+      // `auto` means the direction could not be determined, e.g. `resolved` is not a valid BCP 47
+      // tag; leave the attribute alone in that case
+      if (dir !== 'auto') {
+        document.documentElement.dir = dir;
       }
     }
 
@@ -756,7 +717,7 @@ const overrideMessageValue = (mv, formatter, presetLocale) => {
     // `MessageFormat.format()` reads `dir` to pick the bidi isolate character, so it has to follow
     // the preset locale. `toParts()` keeps the original formatter, but it is reachable only through
     // `formatToParts()`, which this library does not expose.
-    dir: presetLocale ? getTextDirection(new Intl.Locale(presetLocale)) : mv.dir,
+    dir: presetLocale ? getLocaleDir(presetLocale) : mv.dir,
     /**
      * Format the value through the preset.
      * @returns {string} The formatted string.

@@ -16,9 +16,9 @@ An internationalization (i18n) library for Svelte applications. Heavily inspired
     - [`locales`](#locales)
     - [`dictionary`](#dictionary)
     - [`isLoading()`](#isloading)
-    - [`isRTL(locale?)`](#isrtllocale)
   - [Locale](#locale)
     - [`locale`](#locale-1)
+    - [`isRTL(locale?)`](#isrtllocale)
     - [`getLocaleFromNavigator()`](#getlocalefromnavigator)
     - [`getLocaleFromHostname(pattern)`](#getlocalefromhostnamepattern)
     - [`getLocaleFromPathname(pattern)`](#getlocalefrompathnamepattern)
@@ -193,27 +193,6 @@ if (isLoading()) return; // messages still loading
 
 ---
 
-#### `isRTL(locale?)`
-
-Returns `true` when the given locale (or the current locale if omitted) is written right-to-left (e.g. Arabic, Hebrew, Persian). Reactive: re-evaluates automatically whenever the locale changes.
-
-```js
-import { isRTL } from '@sveltia/i18n';
-if (isRTL()) console.log('RTL layout active');
-isRTL('ar'); // → true, regardless of the active locale
-isRTL('en-US'); // → false
-```
-
-In a Svelte template:
-
-```svelte
-<div dir={isRTL() ? 'rtl' : 'ltr'}>
-  {_('content')}
-</div>
-```
-
----
-
 ### Locale
 
 #### `locale`
@@ -233,6 +212,25 @@ await locale.set('fr'); // switch to French, triggers any registered loader, upd
 // locales registered: ['en-US', 'fr', 'ja'], fallbackLocale: 'en-US'
 await locale.set('en-CA'); // language match → locale.current = 'en-US'
 await locale.set('zh-TW'); // no match → falls back to 'en-US'
+```
+
+#### `isRTL(locale?)`
+
+Returns `true` when the given locale (or the current locale if omitted) is written right-to-left (e.g. Arabic, Hebrew, Persian). The direction comes from `Intl.Locale`’s text info where the browser provides it, and from the locale’s script subtag otherwise, so an invalid or unknown tag yields `false`. Reactive: re-evaluates automatically whenever the locale changes.
+
+```js
+import { isRTL } from '@sveltia/i18n';
+if (isRTL()) console.log('RTL layout active');
+isRTL('ar'); // → true, regardless of the active locale
+isRTL('en-US'); // → false
+```
+
+In a Svelte template:
+
+```svelte
+<div dir={isRTL() ? 'rtl' : 'ltr'}>
+  {_('content')}
+</div>
 ```
 
 #### `getLocaleFromNavigator()`
