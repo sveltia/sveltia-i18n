@@ -1,15 +1,55 @@
 import { MessageFormat } from 'messageformat';
-import { DraftFunctions } from 'messageformat/functions';
+import { DefaultFunctions, DraftFunctions } from 'messageformat/functions';
 import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 
 // Polyfill
 Intl.MessageFormat ??= MessageFormat;
 
 /**
+ * A date/time format preset, extending `Intl.DateTimeFormatOptions` with a `locale` override that
+ * applies whenever the preset is selected.
+ * @typedef {Intl.DateTimeFormatOptions & { locale?: string }} DateFormatPreset
+ */
+
+/**
+ * A number format preset, extending `Intl.NumberFormatOptions` with a `locale` override that
+ * applies whenever the preset is selected.
+ * @typedef {Intl.NumberFormatOptions & { locale?: string }} NumberFormatPreset
+ */
+
+/**
+ * Custom format presets. Within each group, the reserved `_default` key defines the preset used
+ * when no `format` option is given, replacing the bare `Intl` defaults. It also applies to the
+ * matching MF2 placeholders in messages, where it likewise replaces the options the placeholder
+ * resolved. Any other key defines a named preset selectable with the `format` option.
  * @typedef {object} Formats
- * @property {Record<string, Intl.NumberFormatOptions>} [number] Custom number format presets.
- * @property {Record<string, Intl.DateTimeFormatOptions>} [date] Custom date format presets.
- * @property {Record<string, Intl.DateTimeFormatOptions>} [time] Custom time format presets.
+ * @property {Record<string, NumberFormatPreset>} [number] Custom number format presets.
+ * @property {Record<string, DateFormatPreset>} [date] Custom date format presets.
+ * @property {Record<string, DateFormatPreset>} [time] Custom time format presets.
+ * @property {Record<string, DateFormatPreset>} [datetime] Custom date/time format presets. Used
+ * only by the MF2 `:datetime` function; there is no standalone `datetime()` formatter.
+ */
+
+/**
+ * Per-call format overrides for the MF2 placeholders in a single message. Each entry is either the
+ * name of a preset (custom or built-in) or an inline preset object.
+ * @typedef {object} MessageFormats
+ * @property {string | NumberFormatPreset} [number] Applied to `:number` and `:integer`.
+ * @property {string | DateFormatPreset} [date] Applied to `:date`.
+ * @property {string | DateFormatPreset} [time] Applied to `:time`.
+ * @property {string | DateFormatPreset} [datetime] Applied to `:datetime`.
+ */
+
+/**
+ * A custom MF2 function handler, registered with `registerMessageFunction()` and callable from
+ * messages as `:name`.
+ * @callback MessageFunction
+ * @param {any} context MF2 function context, carrying `locales`, `localeMatcher` and `onError`.
+ * @param {Record<string, unknown>} options Options given in the message expression, e.g.
+ * `weekday=long`.
+ * @param {unknown} [operand] The value the function was applied to.
+ * @returns {any} A message value exposing at least `toString()`.
+ * @see https://messageformat.github.io/messageformat/api/messageformat.messagefunction/
  */
 
 /**
@@ -26,6 +66,7 @@ Intl.MessageFormat ??= MessageFormat;
  * @property {Record<string, any>} [values] Variables to interpolate into the message.
  * @property {string} [locale] Locale override for this call.
  * @property {string} [default] Fallback string if the key is not found.
+ * @property {MessageFormats} [formats] Format overrides for the MF2 placeholders in this message.
  */
 
 /**
@@ -75,6 +116,19 @@ let _resolvedFallback = '';
 let missingMessageHandler;
 /** @type {Formats} */
 let customFormats = {};
+/**
+ * Custom MF2 functions, keyed by the name used in messages. Read when a message is compiled, so
+ * entries added after `addMessages()` do not apply to messages already registered.
+ * @type {Record<string, MessageFunction>}
+ */
+let customFunctions = {};
+/**
+ * Format overrides for the MF2 placeholders of the message currently being formatted. MF2
+ * formatting is synchronous, so this is set for the duration of one {@link format} call and cleared
+ * again before it returns.
+ * @type {MessageFormats | undefined}
+ */
+let messageFormats;
 
 // Languages written right-to-left; used as a fallback when Intl.Locale.textInfo is not available
 // (e.g. Firefox).
@@ -219,7 +273,9 @@ const addMessages = (localeCode, ...maps) => {
   maps.forEach((map) => {
     Object.entries(flattenMessages(map)).forEach(([key, value]) => {
       dictionary[localeCode][key] = new Intl.MessageFormat(localeCode, String(value), {
-        functions: DraftFunctions,
+        // Custom functions come last so they can replace a built-in of the same name.
+        // eslint-disable-next-line no-use-before-define
+        functions: { ...MESSAGE_FUNCTIONS, ...customFunctions },
       });
     });
   });
@@ -336,6 +392,32 @@ const locale = {
 
     return waitLocale(resolved);
   },
+};
+
+/**
+ * Register a custom MF2 function, callable from messages as `:name`. Registering an existing name,
+ * including a built-in like `date`, replaces it.
+ *
+ * Messages are compiled by {@link addMessages}, which captures the functions available at that
+ * moment, so **all functions must be registered before the messages that use them are added**. A
+ * message referencing an unregistered function formats as a fallback such as `{$value}`.
+ * @param {string} name Function name, without the leading colon.
+ * @param {MessageFunction} fn Function handler.
+ * @throws {TypeError} If `name` is not a non-empty string or `fn` is not a function.
+ * @see https://messageformat.github.io/messageformat/api/messageformat.messagefunction/
+ */
+const registerMessageFunction = (name, fn) => {
+  if (typeof name !== 'string' || !name) {
+    throw new TypeError(
+      `registerMessageFunction: name must be a non-empty string (got ${JSON.stringify(name)})`,
+    );
+  }
+
+  if (typeof fn !== 'function') {
+    throw new TypeError(`registerMessageFunction: fn must be a function (got ${typeof fn})`);
+  }
+
+  customFunctions[name] = fn;
 };
 
 /**
@@ -462,7 +544,10 @@ const getLocaleFromHash = (hashKey) => {
  * @param {object} args Arguments.
  * @param {string} args.fallbackLocale Locale to be used for fallback.
  * @param {string} [args.initialLocale] Locale to be used for the initial selection.
- * @param {Formats} [args.formats] Custom named formats.
+ * @param {Formats} [args.formats] Custom named formats. The reserved `_default` key in each group
+ * defines the preset used when a `number()`, `date()` or `time()` call passes no `format` option,
+ * and for the matching MF2 placeholders in messages. A preset may carry a `locale` to format in a
+ * locale other than the active one.
  * @param {MissingKeyHandler} [args.handleMissingMessage] Called when a message key is not found.
  * May return a string to use as a fallback.
  * @throws {TypeError} If `args.fallbackLocale` is not a string, `args.initialLocale` is not a
@@ -501,12 +586,15 @@ const init = (args) => {
  * - `format(id, options?)` — key as first argument
  * - `format({ id, values, locale, default })` — options object only.
  * @param {string | MessageObject} key Message key, or an object with `id` and options.
- * @param {{ values?: Record<string, any>, locale?: string, default?: string }} [options] Formatting
- * options when `key` is a string.
+ * @param {{ values?: Record<string, any>, locale?: string, default?: string,
+ * formats?: MessageFormats }} [options] Formatting options when `key` is a string.
  * @returns {string} The formatted message string.
  * @throws {TypeError} If `key` is `null` or `undefined`.
  */
-const format = (key, { values = {}, locale: localeOverride, default: defaultString } = {}) => {
+const format = (
+  key,
+  { values = {}, locale: localeOverride, default: defaultString, formats } = {},
+) => {
   if (key === null || key === undefined) {
     throw new TypeError(
       `format: key must be a string or message object (got ${JSON.stringify(key)})`,
@@ -514,17 +602,26 @@ const format = (key, { values = {}, locale: localeOverride, default: defaultStri
   }
 
   if (typeof key === 'object') {
-    const { id, values: v = {}, locale: l, default: d } = key;
+    const { id, values: v = {}, locale: l, default: d, formats: f } = key;
 
-    return format(id, { values: v, locale: l, default: d });
+    return format(id, { values: v, locale: l, default: d, formats: f });
   }
 
   const active = localeOverride ?? _locale;
   const fallback = _resolvedFallback;
 
-  const result =
-    dictionary[active]?.[key]?.format(values) ??
-    (active !== fallback ? dictionary[fallback]?.[key]?.format(values) : undefined);
+  messageFormats = formats;
+
+  /** @type {string | undefined} */
+  let result;
+
+  try {
+    result =
+      dictionary[active]?.[key]?.format(values) ??
+      (active !== fallback ? dictionary[fallback]?.[key]?.format(values) : undefined);
+  } finally {
+    messageFormats = undefined;
+  }
 
   if (result !== undefined) return result;
 
@@ -576,8 +673,11 @@ const json = (prefix, { locale: localeOverride } = {}) => {
 
 // --- Date, time & number ---
 
+/** Reserved preset name defining the options used when no `format` option is given. */
+const DEFAULT_FORMAT_KEY = '_default';
+
 // Built-in named formats matching svelte-i18n defaults
-/** @type {Record<string, Intl.DateTimeFormatOptions>} */
+/** @type {Record<string, DateFormatPreset>} */
 const BUILT_IN_DATE_FORMATS = {
   short: { month: 'numeric', day: 'numeric', year: '2-digit' },
   medium: { month: 'short', day: 'numeric', year: 'numeric' },
@@ -585,7 +685,7 @@ const BUILT_IN_DATE_FORMATS = {
   full: { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
 };
 
-/** @type {Record<string, Intl.DateTimeFormatOptions>} */
+/** @type {Record<string, DateFormatPreset>} */
 const BUILT_IN_TIME_FORMATS = {
   short: { hour: 'numeric', minute: 'numeric' },
   medium: { hour: 'numeric', minute: 'numeric', second: 'numeric' },
@@ -593,7 +693,7 @@ const BUILT_IN_TIME_FORMATS = {
   full: { hour: 'numeric', minute: 'numeric', second: 'numeric', timeZoneName: 'short' },
 };
 
-/** @type {Record<string, Intl.NumberFormatOptions>} */
+/** @type {Record<string, NumberFormatPreset>} */
 const BUILT_IN_NUMBER_FORMATS = {
   currency: { style: 'currency' },
   percent: { style: 'percent' },
@@ -601,6 +701,128 @@ const BUILT_IN_NUMBER_FORMATS = {
   engineering: { notation: 'engineering' },
   compactLong: { notation: 'compact', compactDisplay: 'long' },
   compactShort: { notation: 'compact', compactDisplay: 'short' },
+};
+
+/**
+ * Built-in presets by kind. `datetime` has no built-ins; its names resolve from `formats.datetime`.
+ * @type {Record<string, Record<string, DateFormatPreset | NumberFormatPreset>>}
+ */
+const BUILT_IN_FORMATS = {
+  date: BUILT_IN_DATE_FORMATS,
+  time: BUILT_IN_TIME_FORMATS,
+  number: BUILT_IN_NUMBER_FORMATS,
+};
+
+/**
+ * Look up a named preset for the given kind: a custom preset defined in `init({ formats })` first,
+ * then a built-in one.
+ * @param {string} kind One of `number`, `date`, `time` or `datetime`.
+ * @param {string} name Preset name.
+ * @returns {DateFormatPreset | NumberFormatPreset | undefined} The preset, or `undefined` if no
+ * preset of that name exists for the kind.
+ */
+const getNamedPreset = (kind, name) =>
+  customFormats[/** @type {keyof Formats} */ (kind)]?.[name] ?? BUILT_IN_FORMATS[kind]?.[name];
+
+/**
+ * Resolve the preset that should override an MF2 function, preferring an override passed to the
+ * current {@link format} call and falling back to the group’s `_default` preset.
+ * @param {string} kind One of `number`, `date`, `time` or `datetime`.
+ * @returns {DateFormatPreset | NumberFormatPreset | undefined} The preset, or `undefined` when
+ * neither the call nor `init({ formats })` provides one for the kind.
+ */
+const getMessagePreset = (kind) => {
+  const spec = messageFormats?.[/** @type {keyof MessageFormats} */ (kind)];
+  const preset = typeof spec === 'string' ? getNamedPreset(kind, spec) : spec;
+
+  return preset ?? customFormats[/** @type {keyof Formats} */ (kind)]?.[DEFAULT_FORMAT_KEY];
+};
+
+/**
+ * Build a replacement for an MF2 message value that formats through `formatter`. Spreading the
+ * original keeps its `selectKey`, so `:number` continues to work as a plural selector.
+ * @param {any} mv The message value returned by the wrapped MF2 function.
+ * @param {Intl.DateTimeFormat | Intl.NumberFormat} formatter Formatter built from the preset.
+ * @param {string} [presetLocale] Locale carried by the preset, if any.
+ * @returns {any} The replacement message value.
+ */
+const overrideMessageValue = (mv, formatter, presetLocale) => {
+  const value = mv.valueOf();
+
+  return {
+    // The spread carries over `selectKey` and `valueOf`, so `:number` keeps working as a plural
+    // selector and the value stays usable as an operand for another function.
+    ...mv,
+    // `MessageFormat.format()` reads `dir` to pick the bidi isolate character, so it has to follow
+    // the preset locale. `toParts()` keeps the original formatter, but it is reachable only through
+    // `formatToParts()`, which this library does not expose.
+    dir: presetLocale ? getTextDirection(new Intl.Locale(presetLocale)) : mv.dir,
+    /**
+     * Format the value through the preset.
+     * @returns {string} The formatted string.
+     */
+    toString: () => formatter.format(value),
+  };
+};
+
+/**
+ * Wrap an MF2 date/time function so a preset selected for the current {@link format} call replaces
+ * the options it resolved.
+ * @param {any} fn The MF2 function to wrap.
+ * @param {'date' | 'time' | 'datetime'} kind Format kind to look up.
+ * @returns {any} The wrapped function.
+ */
+const wrapDateTimeFunction =
+  (fn, kind) =>
+  (/** @type {any} */ ctx, /** @type {any} */ options, /** @type {any} */ operand) => {
+    const mv = fn(ctx, options, operand);
+    const preset = getMessagePreset(kind);
+
+    if (!preset) return mv;
+
+    const { locale: presetLocale, ...rest } = preset;
+
+    return overrideMessageValue(
+      mv,
+      new Intl.DateTimeFormat(presetLocale ?? ctx.locales, rest),
+      presetLocale,
+    );
+  };
+
+/**
+ * Wrap an MF2 number function so a preset selected for the current {@link format} call replaces the
+ * options it resolved.
+ * @param {any} fn The MF2 function to wrap.
+ * @returns {any} The wrapped function.
+ */
+const wrapNumberFunction =
+  (fn) => (/** @type {any} */ ctx, /** @type {any} */ options, /** @type {any} */ operand) => {
+    const mv = fn(ctx, options, operand);
+    const preset = getMessagePreset('number');
+
+    if (!preset) return mv;
+
+    const { locale: presetLocale, ...rest } = preset;
+
+    return overrideMessageValue(
+      mv,
+      new Intl.NumberFormat(presetLocale ?? ctx.locales, rest),
+      presetLocale,
+    );
+  };
+
+/**
+ * MF2 functions used to compile messages. `:number` and `:integer` come from `DefaultFunctions`;
+ * `DraftFunctions` does not define them, and the `functions` option is layered over the defaults,
+ * so wrapping the wrong source would shadow them with `undefined`.
+ */
+const MESSAGE_FUNCTIONS = {
+  ...DraftFunctions,
+  date: wrapDateTimeFunction(DraftFunctions.date, 'date'),
+  time: wrapDateTimeFunction(DraftFunctions.time, 'time'),
+  datetime: wrapDateTimeFunction(DraftFunctions.datetime, 'datetime'),
+  number: wrapNumberFunction(DefaultFunctions.number),
+  integer: wrapNumberFunction(DefaultFunctions.integer),
 };
 
 /**
@@ -618,10 +840,15 @@ const formatDateTimeValue = (kind, value, options = {}) => {
     throw new TypeError(`${kind}: value must be a Date instance (got ${typeof value})`);
   }
 
-  const builtIn = kind === 'date' ? BUILT_IN_DATE_FORMATS : BUILT_IN_TIME_FORMATS;
-  const named = fmt ? (customFormats[kind]?.[fmt] ?? builtIn[fmt] ?? {}) : {};
+  const defaults = customFormats[kind]?.[DEFAULT_FORMAT_KEY];
 
-  return new Intl.DateTimeFormat(loc ?? _locale, { ...named, ...rest }).format(value);
+  const { locale: presetLocale, ...named } = fmt
+    ? (getNamedPreset(kind, fmt) ?? defaults ?? {})
+    : (defaults ?? {});
+
+  return new Intl.DateTimeFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(
+    value,
+  );
 };
 
 /**
@@ -653,9 +880,13 @@ const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
     throw new TypeError(`number: value must be a number or bigint (got ${typeof value})`);
   }
 
-  const named = fmt ? (customFormats.number?.[fmt] ?? BUILT_IN_NUMBER_FORMATS[fmt] ?? {}) : {};
+  const defaults = customFormats.number?.[DEFAULT_FORMAT_KEY];
 
-  return new Intl.NumberFormat(loc ?? _locale, { ...named, ...rest }).format(value);
+  const { locale: presetLocale, ...named } = fmt
+    ? (getNamedPreset('number', fmt) ?? defaults ?? {})
+    : (defaults ?? {});
+
+  return new Intl.NumberFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(value);
 };
 
 /**
@@ -672,6 +903,8 @@ const _reset = () => {
   _resolvedFallback = '';
   missingMessageHandler = undefined;
   customFormats = {};
+  customFunctions = {};
+  messageFormats = undefined;
 };
 
 // Export all public API as named exports, and also alias `format` as `_` and `t` for convenience.
@@ -697,6 +930,7 @@ export {
   locales,
   number,
   register,
+  registerMessageFunction,
   format as t,
   time,
   waitLocale,

@@ -4,6 +4,7 @@ date-long: "長い日付：{$date :date fields=|month-day-weekday| length=long}�
 datetime: "予定：{$date :datetime}。"
 time: "現在時刻は {$time :time} です。"
 time-precise: "正確な時刻：{$time :time precision=second}。"
+weekday: "今日は {$d :weekday weekday=long} です。"
 notifications: |
   .input {$count :integer}
   .match $count

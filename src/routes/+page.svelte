@@ -1,4 +1,5 @@
 <script>
+  import { getLocaleDir } from 'messageformat/functions';
   import { parse } from 'yaml';
   import {
     _,
@@ -11,6 +12,7 @@
     locale,
     locales,
     number,
+    registerMessageFunction,
     time,
   } from '$lib/index.svelte.js';
 
@@ -20,6 +22,25 @@
     eager: true,
     query: '?raw',
     import: 'default',
+  });
+
+  // Custom MF2 functions have to be registered before `addMessages()` compiles the messages that
+  // use them, otherwise those messages fall back to a bare `{$d}` placeholder.
+  registerMessageFunction('weekday', (ctx, options, operand) => {
+    const dtf = new Intl.DateTimeFormat(ctx.locales, {
+      weekday: /** @type {any} */ (options.weekday ?? 'short'),
+    });
+
+    return {
+      type: 'string',
+      // Let the formatted text drive the bidi isolation, so an RTL weekday name is isolated as RTL
+      dir: getLocaleDir(dtf.resolvedOptions().locale),
+      /**
+       * Format the operand as a weekday name.
+       * @returns {string} The formatted weekday.
+       */
+      toString: () => dtf.format(/** @type {Date} */ (operand)),
+    };
   });
 
   Object.entries(resources).forEach(([path, resource]) => {
@@ -32,6 +53,15 @@
   init({
     fallbackLocale: 'en-US',
     initialLocale: getLocaleFromNavigator(),
+    formats: {
+      // Applied whenever `time()` is called without a `format` option, and to `:time` placeholders
+      time: {
+        _default: { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' },
+      },
+      // Named presets, each carrying the locale it should be formatted in
+      date: { YMD: { locale: 'en-CA', year: 'numeric', month: '2-digit', day: '2-digit' } },
+      number: { EUR: { locale: 'de-DE', style: 'currency', currency: 'EUR' } },
+    },
   });
 </script>
 
@@ -115,6 +145,28 @@
 {#each Object.entries(json('nav') ?? {}) as [key, label] (key)}
   <p>{key}: {label}</p>
 {/each}
+
+<h2>Default Format Options</h2>
+<p>{time(new Date('2026-01-23T15:04:00'))}</p>
+<p>{time(new Date('2026-01-23T15:04:00'), { format: 'short' })}</p>
+
+<h2>Presets with a Locale</h2>
+<p>{date(new Date('2026-01-23'), { format: 'YMD' })}</p>
+<p>{number(1234.5, { format: 'EUR' })}</p>
+
+<h2>Per-call Format Overrides</h2>
+<p>{_('date-short', { values: { date: new Date('2026-01-23') } })}</p>
+<p>{_('date-short', { values: { date: new Date('2026-01-23') }, formats: { date: 'YMD' } })}</p>
+<p>
+  {_('date-short', {
+    values: { date: new Date('2026-01-23') },
+    formats: { date: { locale: 'fr-FR', dateStyle: 'full' } },
+  })}
+</p>
+<p>{_('decimal', { values: { num: 1 }, formats: { number: 'EUR' } })}</p>
+
+<h2>Custom Message Function</h2>
+<p>{_('weekday', { values: { d: new Date('2026-01-23') } })}</p>
 
 <h2>Standalone Formatters</h2>
 <p>{date(new Date('2026-01-23'))}</p>

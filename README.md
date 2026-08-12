@@ -26,13 +26,17 @@ An internationalization (i18n) library for Svelte applications. Heavily inspired
     - [`getLocaleFromHash(key)`](#getlocalefromhashkey)
   - [Configuration](#configuration)
     - [`init(options)`](#initoptions)
+    - [Default format options](#default-format-options)
+    - [Formatting in another locale](#formatting-in-another-locale)
   - [Loader](#loader)
     - [`register(localeCode, loader)`](#registerlocalecode-loader)
     - [`waitLocale(localeCode?)`](#waitlocalelocalecode)
   - [Messages](#messages)
     - [`addMessages(localeCode, ...maps)`](#addmessageslocalecode-maps)
+    - [`registerMessageFunction(name, fn)`](#registermessagefunctionname-fn)
   - [Formatting](#formatting)
     - [`format(key, options?)` / `_(key, options?)` / `t(key, options?)`](#formatkey-options--_key-options--tkey-options)
+      - [Overriding formats in a message](#overriding-formats-in-a-message)
     - [`json(prefix, options?)`](#jsonprefix-options)
   - [Date, time & number](#date-time--number)
     - [`date(value, options?)`](#datevalue-options)
@@ -300,7 +304,7 @@ Configures the library. All options except `fallbackLocale` are optional.
 | --- | --- | --- |
 | `fallbackLocale` | `string` | Locale used when a key is missing from the current locale. |
 | `initialLocale` | `string` | Locale to activate immediately. |
-| `formats` | `{ number?, date?, time? }` | Custom named formats for `number()`, `date()`, and `time()`. |
+| `formats` | `{ number?, date?, time? }` | Custom named formats for `number()`, `date()`, and `time()`. The reserved `_default` key in each group defines the preset used when no `format` is given, and any preset may carry a `locale`. |
 | `handleMissingMessage` | `(key, locale, defaultValue) => string \| void` | Called when a key is not found. Return a string to replace the fallback, or `undefined` to continue with the default behaviour. |
 
 ```js
@@ -317,6 +321,53 @@ init({
   },
 });
 ```
+
+#### Default format options
+
+Use the reserved `_default` preset to define the options used when a `number()`, `date()` or `time()` call passes no `format` option, replacing the bare `Intl` defaults:
+
+```js
+init({
+  fallbackLocale: 'en-US',
+  formats: {
+    time: { _default: { hour: 'numeric', minute: 'numeric', hourCycle: 'h23' } },
+    number: { _default: { style: 'currency', currency: 'EUR' } },
+  },
+});
+
+time(new Date('2026-03-15T14:05:00')); // → '14:05'
+number(1234.5); // → '€1,234.50'
+```
+
+A format name is resolved in this order: a custom preset of that name, then the built-in preset, then `_default`. Passing `format` therefore replaces `_default` outright rather than extending it — `time(value, { format: 'short' })` above still renders `2:05 PM`. Inline options passed to the call override whichever preset was selected.
+
+#### Formatting in another locale
+
+Any preset — named or `_default` — may carry a `locale`, which applies whenever that preset is selected. This is useful when a value should be formatted in a locale other than the active one, such as rendering an English page with year-month-day dates:
+
+```js
+init({
+  fallbackLocale: 'en-US',
+  initialLocale: 'en-US',
+  formats: {
+    date: {
+      _default: { locale: 'en-CA', year: 'numeric', month: 'numeric', day: 'numeric' },
+      fr: { locale: 'fr-FR', year: 'numeric', month: 'long' },
+    },
+  },
+});
+
+date(new Date('2026-03-15')); // → '2026-03-15'
+date(new Date('2026-03-15'), { format: 'fr' }); // → 'mars 2026'
+date(new Date('2026-03-15'), { locale: 'en-US' }); // → '3/15/2026'
+```
+
+The locale is resolved as: the `locale` passed to the call, then the selected preset’s `locale`, then the active locale.
+
+<!-- prettier-ignore-start -->
+> [!NOTE]
+> `_default` also applies to the matching MF2 placeholders inside messages, so the same preset covers `time(value)` and `The time is {$t :time}.` alike. Because it replaces the resolved options rather than extending them, it overrides formatting the message asked for itself: with the `time._default` above, `{$t :time precision=second}` no longer shows seconds. Keep `_default` presets to what every occurrence should use, and reach for the [`formats` option of `format()`](#overriding-formats-in-a-message) when one message needs something different.
+<!-- prettier-ignore-end -->
 
 ---
 
@@ -388,6 +439,41 @@ addMessages('en-US', { 'field.name': 'Name' }, { 'field.birth': 'Date of birth' 
 _('field.name'); // → 'Name'
 ```
 
+#### `registerMessageFunction(name, fn)`
+
+Registers a custom [MF2 function](https://messageformat.github.io/messageformat/api/messageformat.messagefunction/), callable from messages as `:name`. This gives a message full control over how a value is rendered, including options declared in the message itself:
+
+```js
+import { addMessages, registerMessageFunction } from '@sveltia/i18n';
+import { getLocaleDir } from 'messageformat/functions';
+
+registerMessageFunction('weekday', (ctx, options, operand) => {
+  const dtf = new Intl.DateTimeFormat(ctx.locales, { weekday: options.weekday ?? 'short' });
+
+  return {
+    type: 'string',
+    // Drives bidi isolation, so an RTL result is isolated as RTL
+    dir: getLocaleDir(dtf.resolvedOptions().locale),
+    toString: () => dtf.format(operand),
+  };
+});
+
+addMessages('en-US', { today: 'Today is {$d :weekday weekday=long}.' });
+
+_('today', { values: { d: new Date('2026-03-15T12:00:00') } }); // → 'Today is Sunday.'
+```
+
+The handler receives the MF2 function context (`locales`, `localeMatcher`, `onError`), the options written in the message expression, and the operand. It must return a value with at least a `toString()` method; add `selectKey()` if the function is also used as a selector in a `.match` block.
+
+Set `dir` from the locale the value is actually formatted in, as above — MessageFormat uses it to choose the bidi isolate that wraps the value. Hard-coding `'ltr'` puts an RTL result in an LTR isolate; omitting `dir` falls back to first-strong isolation, which is safe but always isolates.
+
+Registering an existing name replaces it, including built-ins such as `date`, `time` and `number`. A replaced built-in is no longer affected by the [`formats` option of `format()`](#overriding-formats-in-a-message) — the handler owns its formatting.
+
+<!-- prettier-ignore-start -->
+> [!IMPORTANT]
+> `addMessages()` compiles each message with the functions available at that moment, so **custom functions must be registered before the messages that use them are added**. A message referencing an unregistered function formats as a fallback such as `{$d}` instead of throwing, so an ordering mistake shows up as a stray placeholder in the UI. When using loaders, register your functions alongside `init()`, before `waitLocale()` resolves.
+<!-- prettier-ignore-end -->
+
 ---
 
 ### Formatting
@@ -406,6 +492,7 @@ Supports two call signatures (matching svelte-i18n):
 | `values` | `Record<string, any>` | Variables to interpolate into the message. |
 | `locale` | `string` | Override the active locale for this call only. If the key is not found in the override locale, the lookup still falls back to `fallbackLocale`. |
 | `default` | `string` | Fallback string if the key is not found in any locale. |
+| `formats` | `{ number?, date?, time?, datetime? }` | Format overrides for the MF2 placeholders in this message. Each entry is a preset name or an inline preset object. See [Overriding formats in a message](#overriding-formats-in-a-message). |
 
 Lookup order:
 
@@ -431,6 +518,46 @@ _({ id: 'hello', values: { name: 'Alice' } }); // → 'Hello, Alice!'
 // svelte-i18n-style alias
 t('hello'); // → 'Hello!'
 ```
+
+##### Overriding formats in a message
+
+Dates and numbers embedded in a message are formatted by MessageFormat itself, so the `format` option of `date()`, `time()` and `number()` cannot reach them. Pass `formats` to override them for one call, taking precedence over any [`_default` preset](#default-format-options):
+
+```yaml
+# en-US.yaml
+registered: 'Registered on {$d :date length=short}'
+total: 'Total: {$n :number}'
+```
+
+```js
+_('registered', { values: { d } }); // → 'Registered on 3/15/2026'
+
+// A preset name, custom or built-in
+_('registered', { values: { d }, formats: { date: 'YMD' } }); // → 'Registered on 2026-03-15'
+_('registered', { values: { d }, formats: { date: 'medium' } }); // → 'Registered on Mar 15, 2026'
+
+// An inline preset object, which may carry its own locale
+_('registered', {
+  values: { d },
+  formats: { date: { locale: 'fr-FR', dateStyle: 'full' } },
+}); // → 'Registered on dimanche 15 mars 2026'
+
+_('total', { values: { n: 1234.5 }, formats: { number: 'EUR' } }); // → 'Total: €1,234.50'
+```
+
+| Key        | MF2 functions overridden |
+| ---------- | ------------------------ |
+| `number`   | `:number`, `:integer`    |
+| `date`     | `:date`                  |
+| `time`     | `:time`                  |
+| `datetime` | `:datetime`              |
+
+Preset names resolve against the matching group in `init({ formats })` first, then the built-in names. A name that matches nothing is ignored, leaving the message formatted as written. `:currency`, `:percent` and `:unit` have their own required options and are never overridden.
+
+<!-- prettier-ignore-start -->
+> [!NOTE]
+> An override applies to **every** matching placeholder in the message. In `'You have {$n :number} items'`, `formats: { number: 'EUR' }` also reformats the count. For messages that mix roles, format the parts separately and interpolate them.
+<!-- prettier-ignore-end -->
 
 ---
 
@@ -475,7 +602,7 @@ Options accept any `Intl.DateTimeFormatOptions` plus:
 | Option | Type | Description |
 | --- | --- | --- |
 | `locale` | `string` | Override the active locale for this call. |
-| `format` | `string` | A named format: `short`, `medium`, `long`, `full`, or a custom name defined in `init({ formats })`. |
+| `format` | `string` | A named format: `short`, `medium`, `long`, `full`, or a custom name defined in `init({ formats })`. A custom preset may carry its own `locale`. |
 
 ```js
 import { date } from '@sveltia/i18n';
@@ -511,7 +638,7 @@ Options accept any `Intl.NumberFormatOptions` plus:
 | Option | Type | Description |
 | --- | --- | --- |
 | `locale` | `string` | Override the active locale for this call. |
-| `format` | `string` | A named format: `currency`, `percent`, `scientific`, `engineering`, `compactLong`, `compactShort`, or a custom name defined in `init({ formats })`. |
+| `format` | `string` | A named format: `currency`, `percent`, `scientific`, `engineering`, `compactLong`, `compactShort`, or a custom name defined in `init({ formats })`. A custom preset may carry its own `locale`. |
 
 ```js
 import { number } from '@sveltia/i18n';

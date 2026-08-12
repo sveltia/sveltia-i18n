@@ -4,6 +4,7 @@ date-long: "تاريخ طويل: {$date :date fields=|month-day-weekday| length=
 datetime: "الموعد: {$date :datetime}."
 time: "الوقت هو {$time :time}."
 time-precise: "الوقت الدقيق: {$time :time precision=second}."
+weekday: "اليوم هو {$d :weekday weekday=long}."
 notifications: |
   .input {$count :integer}
   .match $count

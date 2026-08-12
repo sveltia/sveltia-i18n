@@ -4,6 +4,7 @@ date-long: "Long date: {$date :date fields=|month-day-weekday| length=long}."
 datetime: "Appointment: {$date :datetime}."
 time: "The time is {$time :time}."
 time-precise: "Precise time: {$time :time precision=second}."
+weekday: Today is {$d :weekday weekday=long}.
 notifications: |
   .input {$count :integer}
   .match $count

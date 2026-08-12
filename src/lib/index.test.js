@@ -22,6 +22,7 @@ import {
   locales,
   number,
   register,
+  registerMessageFunction,
   t,
   time,
   waitLocale,
@@ -1331,6 +1332,279 @@ describe('json — empty dictionary', () => {
 // date() / time() / number() standalone formatters
 // ---------------------------------------------------------------------------
 
+describe('registerMessageFunction', () => {
+  const testDate = new Date('2026-03-15T14:05:00Z');
+
+  /**
+   * Format a date as a weekday name, honouring a `weekday` option from the message.
+   * @type {import('./index.svelte.js').MessageFunction}
+   */
+  const weekdayFn = (ctx, options, operand) => {
+    const dtf = new Intl.DateTimeFormat(ctx.locales, {
+      weekday: /** @type {any} */ (options.weekday ?? 'short'),
+      timeZone: 'UTC',
+    });
+
+    return { type: 'string', dir: 'ltr', toString: () => dtf.format(/** @type {any} */ (operand)) };
+  };
+
+  beforeEach(() => {
+    init({ fallbackLocale: 'en-US', initialLocale: 'en-US' });
+  });
+
+  it('makes a custom function callable from a message', () => {
+    registerMessageFunction('weekday', weekdayFn);
+    addMessages('en-US', { today: 'Today is {$d :weekday}.' });
+
+    expect(stripBidi(_('today', { values: { d: testDate } }))).toBe('Today is Sun.');
+  });
+
+  it('passes message expression options to the handler', () => {
+    registerMessageFunction('weekday', weekdayFn);
+    addMessages('en-US', { today: 'Today is {$d :weekday weekday=long}.' });
+
+    expect(stripBidi(_('today', { values: { d: testDate } }))).toBe('Today is Sunday.');
+  });
+
+  it('replaces a built-in function of the same name', () => {
+    registerMessageFunction('date', weekdayFn);
+    addMessages('en-US', { today: 'Today is {$d :date}.' });
+
+    expect(stripBidi(_('today', { values: { d: testDate } }))).toBe('Today is Sun.');
+  });
+
+  it('does not apply to messages added before the registration', () => {
+    addMessages('en-US', { today: 'Today is {$d :weekday}.' });
+    registerMessageFunction('weekday', weekdayFn);
+
+    // Documented limitation: MF2 captures the available functions when a message is compiled
+    expect(stripBidi(_('today', { values: { d: testDate } }))).toBe('Today is {$d}.');
+  });
+
+  it('applies to messages added after the registration only', () => {
+    addMessages('en-US', { before: '{$d :weekday}' });
+    registerMessageFunction('weekday', weekdayFn);
+    addMessages('en-US', { after: '{$d :weekday}' });
+
+    expect(stripBidi(_('before', { values: { d: testDate } }))).toBe('{$d}');
+    expect(stripBidi(_('after', { values: { d: testDate } }))).toBe('Sun');
+  });
+
+  it('leaves the per-call formats option working for unreplaced functions', () => {
+    registerMessageFunction('weekday', weekdayFn);
+    addMessages('en-US', { registered: 'On {$d :date length=short}' });
+
+    const result = _('registered', {
+      values: { d: testDate },
+      formats: { date: { locale: 'en-CA', year: 'numeric', month: '2-digit', day: '2-digit' } },
+    });
+
+    expect(stripBidi(result)).toBe('On 2026-03-15');
+  });
+
+  it('is cleared by _reset()', () => {
+    registerMessageFunction('weekday', weekdayFn);
+    _reset();
+    init({ fallbackLocale: 'en-US', initialLocale: 'en-US' });
+    addMessages('en-US', { today: 'Today is {$d :weekday}.' });
+
+    expect(stripBidi(_('today', { values: { d: testDate } }))).toBe('Today is {$d}.');
+  });
+
+  it('throws when name is not a non-empty string', () => {
+    expect(() => registerMessageFunction(/** @type {any} */ (''), weekdayFn)).toThrow(TypeError);
+    expect(() => registerMessageFunction(/** @type {any} */ (null), weekdayFn)).toThrow(TypeError);
+    expect(() => registerMessageFunction(/** @type {any} */ (42), weekdayFn)).toThrow(TypeError);
+  });
+
+  it('throws when fn is not a function', () => {
+    expect(() => registerMessageFunction('x', /** @type {any} */ ('nope'))).toThrow(TypeError);
+    expect(() => registerMessageFunction('x', /** @type {any} */ (undefined))).toThrow(TypeError);
+  });
+});
+
+describe('format() with _default applied to MF2 placeholders', () => {
+  const testDate = new Date('2026-03-15T14:05:00Z');
+
+  beforeEach(() => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: {
+        date: { _default: { locale: 'en-CA', year: 'numeric', month: '2-digit', day: '2-digit' } },
+        number: { _default: { minimumFractionDigits: 2 } },
+      },
+    });
+    addMessages('en-US', {
+      plain: 'On {$d :date}',
+      short: 'On {$d :date length=short}',
+      total: 'Total: {$n :number}',
+      items: '.input {$n :integer}\n.match $n\none {{{$n} item}}\n* {{{$n} items}}',
+    });
+  });
+
+  it('applies _default to a placeholder', () => {
+    expect(stripBidi(_('plain', { values: { d: testDate } }))).toBe('On 2026-03-15');
+  });
+
+  it('applies _default even when the placeholder declares its own options', () => {
+    // `_default` replaces the options MF2 resolved, so `length=short` no longer has an effect
+    expect(stripBidi(_('short', { values: { d: testDate } }))).toBe('On 2026-03-15');
+  });
+
+  it('lets a per-call formats entry win over _default', () => {
+    const result = _('plain', {
+      values: { d: testDate },
+      formats: { date: { locale: 'fr-FR', dateStyle: 'full' } },
+    });
+
+    expect(stripBidi(result)).toBe('On dimanche 15 mars 2026');
+  });
+
+  it('applies a number _default to :number', () => {
+    expect(stripBidi(_('total', { values: { n: 1234.5 } }))).toBe('Total: 1,234.50');
+  });
+
+  it('applies a number _default to plural counts, keeping selection intact', () => {
+    expect(stripBidi(_('items', { values: { n: 1 } }))).toBe('1.00 item');
+    expect(stripBidi(_('items', { values: { n: 3 } }))).toBe('3.00 items');
+  });
+});
+
+describe('format() with per-call MF2 format overrides', () => {
+  const testDate = new Date('2026-03-15T14:05:00Z');
+
+  beforeEach(() => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: {
+        date: { YMD: { locale: 'en-CA', year: 'numeric', month: '2-digit', day: '2-digit' } },
+        number: { EUR: { style: 'currency', currency: 'EUR' } },
+        datetime: { FR: { locale: 'fr-FR', dateStyle: 'short', timeStyle: 'short' } },
+      },
+    });
+    addMessages('en-US', {
+      registered: 'Registered on {$d :date length=short}',
+      at: 'At {$d :time precision=minute}',
+      appointment: 'Appointment: {$d :datetime}',
+      total: 'Total: {$n :number}',
+      count: 'Count: {$n :integer}',
+    });
+  });
+
+  it('formats without overrides by default', () => {
+    expect(stripBidi(_('registered', { values: { d: testDate } }))).toBe('Registered on 3/15/2026');
+    expect(stripBidi(_('total', { values: { n: 1234.5 } }))).toBe('Total: 1,234.5');
+  });
+
+  it('applies a custom preset name to :date', () => {
+    const result = _('registered', { values: { d: testDate }, formats: { date: 'YMD' } });
+
+    expect(stripBidi(result)).toBe('Registered on 2026-03-15');
+  });
+
+  it('applies a built-in preset name to :date', () => {
+    const result = _('registered', { values: { d: testDate }, formats: { date: 'medium' } });
+
+    expect(stripBidi(result)).toBe('Registered on Mar 15, 2026');
+  });
+
+  it('applies an inline preset object to :date', () => {
+    const result = _('registered', {
+      values: { d: testDate },
+      formats: { date: { locale: 'fr-FR', dateStyle: 'full' } },
+    });
+
+    expect(stripBidi(result)).toBe('Registered on dimanche 15 mars 2026');
+  });
+
+  it('applies an override to :time', () => {
+    const result = _('at', {
+      values: { d: testDate },
+      formats: { time: { locale: 'de-DE', hour: 'numeric', minute: 'numeric' } },
+    });
+
+    expect(stripBidi(result)).toMatch(/^At \d{2}:05$/);
+  });
+
+  it('applies an override to :datetime', () => {
+    const result = _('appointment', { values: { d: testDate }, formats: { datetime: 'FR' } });
+
+    expect(stripBidi(result)).toMatch(/^Appointment: 15\/03\/2026 /);
+  });
+
+  it('applies an override to :number', () => {
+    const result = _('total', { values: { n: 1234.5 }, formats: { number: 'EUR' } });
+
+    expect(stripBidi(result)).toBe('Total: €1,234.50');
+  });
+
+  it('applies the number override to :integer as well', () => {
+    const result = _('count', { values: { n: 7 }, formats: { number: 'EUR' } });
+
+    expect(stripBidi(result)).toBe('Count: €7.00');
+  });
+
+  it('ignores an unknown preset name', () => {
+    const result = _('registered', { values: { d: testDate }, formats: { date: 'unknown' } });
+
+    expect(stripBidi(result)).toBe('Registered on 3/15/2026');
+  });
+
+  it('leaves other placeholder kinds untouched', () => {
+    const result = _('registered', { values: { d: testDate }, formats: { number: 'EUR' } });
+
+    expect(stripBidi(result)).toBe('Registered on 3/15/2026');
+  });
+
+  it('does not leak overrides into the next call', () => {
+    _('registered', { values: { d: testDate }, formats: { date: 'YMD' } });
+
+    expect(stripBidi(_('registered', { values: { d: testDate } }))).toBe('Registered on 3/15/2026');
+  });
+
+  it('clears overrides even when formatting throws', () => {
+    addMessages('en-US', { bad: 'Value: {$n :number}' });
+    // A non-numeric operand makes :number throw, which MF2 catches and reports
+    _('bad', { values: { n: 'abc' }, formats: { number: 'EUR' } });
+
+    expect(stripBidi(_('total', { values: { n: 1234.5 } }))).toBe('Total: 1,234.5');
+  });
+
+  it('keeps :number usable as a plural selector', () => {
+    addMessages('en-US', {
+      items: '.input {$n :number}\n.match $n\none {{{$n} item}}\n* {{{$n} items}}',
+    });
+
+    expect(stripBidi(_('items', { values: { n: 1 } }))).toBe('1 item');
+    expect(stripBidi(_('items', { values: { n: 3 } }))).toBe('3 items');
+    expect(stripBidi(_('items', { values: { n: 1 }, formats: { number: 'EUR' } }))).toBe(
+      '€1.00 item',
+    );
+  });
+
+  it('accepts formats in the object call signature', () => {
+    const result = format({ id: 'registered', values: { d: testDate }, formats: { date: 'YMD' } });
+
+    expect(stripBidi(result)).toBe('Registered on 2026-03-15');
+  });
+
+  it('uses an RTL bidi isolate when the preset locale is RTL', () => {
+    const ltr = _('registered', { values: { d: testDate } });
+
+    const rtl = _('registered', {
+      values: { d: testDate },
+      formats: { date: { locale: 'ar-EG', dateStyle: 'short' } },
+    });
+
+    // MF2 skips isolation when both the message and the value are LTR, and wraps the value in
+    // U+2067 RLI once the preset switches the value to Arabic
+    expect(ltr).not.toMatch(/[⁦-⁩]/);
+    expect(rtl).toContain('⁧');
+  });
+});
+
 describe('date() standalone formatter', () => {
   const testDate = new Date('2026-03-15T00:00:00');
 
@@ -1389,6 +1663,97 @@ describe('date() standalone formatter', () => {
     expect(() => date(/** @type {any} */ ('2026-01-01'))).toThrow(TypeError);
     expect(() => date(/** @type {any} */ (null))).toThrow(TypeError);
   });
+
+  it('applies the _default format when no format is given', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { _default: { year: 'numeric', month: 'long' } } },
+    });
+
+    expect(date(testDate)).toBe('March 2026');
+  });
+
+  it('lets a named format win over the _default format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { _default: { month: '2-digit' } } },
+    });
+
+    // `long` sets month: 'long', overriding the default month: '2-digit'
+    expect(date(testDate, { format: 'long' })).toBe('March 15, 2026');
+  });
+
+  it('does not contribute _default keys to a named format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { _default: { era: 'short' } } },
+    });
+
+    // A named format replaces `_default` outright, so `era` does not leak into it
+    expect(date(testDate, { format: 'long' })).toBe('March 15, 2026');
+  });
+
+  it('falls back to _default for an unknown format name', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { _default: { year: 'numeric', month: 'long' } } },
+    });
+
+    expect(date(testDate, { format: 'unknown' })).toBe('March 2026');
+  });
+
+  it('uses a locale carried by the _default preset', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: {
+        date: {
+          _default: { locale: 'en-CA', year: 'numeric', month: 'numeric', day: 'numeric' },
+        },
+      },
+    });
+
+    // en-CA orders numeric dates as year-month-day, unlike the active en-US locale
+    expect(date(testDate)).toBe('2026-03-15');
+  });
+
+  it('uses a locale carried by a named preset', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { fr: { locale: 'fr-FR', year: 'numeric', month: 'long' } } },
+    });
+
+    expect(date(testDate, { format: 'fr' })).toBe('mars 2026');
+  });
+
+  it('lets an inline locale win over the preset locale', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: {
+        date: {
+          _default: { locale: 'en-CA', year: 'numeric', month: 'numeric', day: 'numeric' },
+        },
+      },
+    });
+
+    expect(date(testDate, { locale: 'en-US' })).toBe('3/15/2026');
+  });
+
+  it('lets inline options win over the _default format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { date: { _default: { year: 'numeric', month: 'long' } } },
+    });
+
+    expect(date(testDate, { month: 'short' })).toBe('Mar 2026');
+  });
 });
 
 describe('time() standalone formatter', () => {
@@ -1423,6 +1788,39 @@ describe('time() standalone formatter', () => {
   it('throws when value is not a Date', () => {
     expect(() => time(/** @type {any} */ (123456789))).toThrow(TypeError);
     expect(() => time(/** @type {any} */ (null))).toThrow(TypeError);
+  });
+
+  it('applies the _default format when no format is given', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { time: { _default: { hour: 'numeric', minute: 'numeric', hourCycle: 'h23' } } },
+    });
+
+    // 24-hour clock in en-US, which would otherwise render a bare date
+    expect(time(testTime)).toBe('14:05');
+  });
+
+  it('does not apply _default to a named format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { time: { _default: { hour: 'numeric', minute: 'numeric', hourCycle: 'h23' } } },
+    });
+
+    // `short` replaces `_default` outright, so the 12-hour clock is unaffected
+    expect(time(testTime, { format: 'short' })).toBe('2:05 PM');
+  });
+
+  it('uses a locale carried by a preset', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { time: { de: { locale: 'de-DE', hour: 'numeric', minute: 'numeric' } } },
+    });
+
+    // German uses a 24-hour clock
+    expect(time(testTime, { format: 'de' })).toBe('14:05');
   });
 });
 
@@ -1481,6 +1879,79 @@ describe('number() standalone formatter', () => {
 
   it('formats a bigint with a named format', () => {
     expect(number(1_500_000_000_000n, { format: 'compactShort' })).toBe('1.5T');
+  });
+
+  it('applies the _default format when no format is given', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { style: 'currency', currency: 'EUR' } } },
+    });
+
+    expect(number(1234.5)).toBe('€1,234.50');
+  });
+
+  it('lets a named format win over the _default format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { style: 'currency', currency: 'EUR' } } },
+    });
+
+    // `percent` sets style: 'percent', overriding the default style: 'currency'
+    expect(number(0.42, { format: 'percent' })).toBe('42%');
+  });
+
+  it('does not contribute _default keys to a named format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { minimumFractionDigits: 2 } } },
+    });
+
+    // A named format replaces `_default` outright, so the fraction digits do not leak into it
+    expect(number(0.4, { format: 'percent' })).toBe('40%');
+  });
+
+  it('falls back to _default for an unknown format name', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { style: 'currency', currency: 'EUR' } } },
+    });
+
+    expect(number(1234.5, { format: 'unknown' })).toBe('€1,234.50');
+  });
+
+  it('uses a locale carried by a preset', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { de: { locale: 'de-DE', minimumFractionDigits: 2 } } },
+    });
+
+    // German uses a comma as the decimal separator and a period for thousands
+    expect(number(1234.5, { format: 'de' })).toBe('1.234,50');
+  });
+
+  it('lets an inline locale win over the preset locale', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { locale: 'de-DE', minimumFractionDigits: 2 } } },
+    });
+
+    expect(number(1234.5, { locale: 'en-US' })).toBe('1,234.50');
+  });
+
+  it('lets inline options win over the _default format', () => {
+    init({
+      fallbackLocale: 'en-US',
+      initialLocale: 'en-US',
+      formats: { number: { _default: { minimumFractionDigits: 2 } } },
+    });
+
+    expect(number(1234.5, { minimumFractionDigits: 0 })).toBe('1,234.5');
   });
 });
 
