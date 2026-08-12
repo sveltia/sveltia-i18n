@@ -49,7 +49,7 @@ Intl.MessageFormat ??= MessageFormat;
  * `weekday=long`.
  * @param {unknown} [operand] The value the function was applied to.
  * @returns {any} A message value exposing at least `toString()`.
- * @see https://messageformat.github.io/messageformat/api/messageformat.messagefunction/
+ * @see https://messageformat.github.io/modules/messageformat_functions.html
  */
 
 /**
@@ -250,7 +250,7 @@ const registerLocaleCode = (localeCode) => {
  * @param {string} localeCode Locale.
  * @param {...Record<string, any>} maps One or more message maps (flat or nested).
  * @throws {TypeError} If `localeCode` is not a non-empty string or any map is not a plain object.
- * @see https://messageformat.github.io/messageformat/api/messageformat.messageformat/
+ * @see https://messageformat.github.io/modules/messageformat.html
  */
 const addMessages = (localeCode, ...maps) => {
   if (typeof localeCode !== 'string' || !localeCode) {
@@ -404,7 +404,7 @@ const locale = {
  * @param {string} name Function name, without the leading colon.
  * @param {MessageFunction} fn Function handler.
  * @throws {TypeError} If `name` is not a non-empty string or `fn` is not a function.
- * @see https://messageformat.github.io/messageformat/api/messageformat.messagefunction/
+ * @see https://messageformat.github.io/modules/messageformat_functions.html
  */
 const registerMessageFunction = (name, fn) => {
   if (typeof name !== 'string' || !name) {

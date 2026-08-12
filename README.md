@@ -441,7 +441,7 @@ _('field.name'); // → 'Name'
 
 #### `registerMessageFunction(name, fn)`
 
-Registers a custom [MF2 function](https://messageformat.github.io/messageformat/api/messageformat.messagefunction/), callable from messages as `:name`. This gives a message full control over how a value is rendered, including options declared in the message itself:
+Registers a custom [MF2 function](https://messageformat.github.io/modules/messageformat_functions.html), callable from messages as `:name`. This gives a message full control over how a value is rendered, including options declared in the message itself:
 
 ```js
 import { addMessages, registerMessageFunction } from '@sveltia/i18n';
