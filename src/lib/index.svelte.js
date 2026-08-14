@@ -781,7 +781,14 @@ const overrideMessageValue = (mv, formatter, presetLocale) => {
  */
 const wrapMessageFunction =
   (fn, kind, Formatter) =>
-  (/** @type {any} */ ctx, /** @type {any} */ options, /** @type {any} */ operand) => {
+  /**
+   * Apply the preset selected for the current {@link format} call to the wrapped function’s result.
+   * @param {any} ctx MF2 function context.
+   * @param {any} options Options resolved by the wrapped function.
+   * @param {any} operand The operand passed to the function.
+   * @returns {any} The message value, with any preset applied.
+   */
+  (ctx, options, operand) => {
     const mv = fn(ctx, options, operand);
     const preset = getMessagePreset(kind);
 
