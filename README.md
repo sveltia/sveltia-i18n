@@ -153,13 +153,13 @@ export const load = async () => {
 
 You can combine any of the `getLocaleFrom*` helpers in priority order:
 
-| Helper                                   | Source                                          |
-| ---------------------------------------- | ----------------------------------------------- |
-| `getLocaleFromNavigator()`               | `navigator.languages[0]` / `navigator.language` |
-| `getLocaleFromQueryString('lang')`       | `?lang=fr` URL parameter                        |
-| `getLocaleFromPathname(/^\/([\w-]+)\//)` | `/fr/page` path prefix                          |
-| `getLocaleFromHostname(/^([\w-]+)\./)`   | `fr.example.com` subdomain                      |
-| `getLocaleFromHash('lang')`              | `#lang=fr` hash parameter                       |
+| Helper                                   | Source                                       |
+| ---------------------------------------- | -------------------------------------------- |
+| `getLocaleFromNavigator()`               | `navigator.languages` / `navigator.language` |
+| `getLocaleFromQueryString('lang')`       | `?lang=fr` URL parameter                     |
+| `getLocaleFromPathname(/^\/([\w-]+)\//)` | `/fr/page` path prefix                       |
+| `getLocaleFromHostname(/^([\w-]+)\./)`   | `fr.example.com` subdomain                   |
+| `getLocaleFromHash('lang')`              | `#lang=fr` hash parameter                    |
 
 ## API
 
@@ -206,12 +206,18 @@ await locale.set('fr'); // switch to French, triggers any registered loader, upd
 
 `locale.set(value)` returns a `Promise<void>` that resolves once any loader registered for the new locale has finished loading. It also keeps `document.documentElement.lang` and `document.documentElement.dir` (`ltr`/`rtl`) in sync automatically.
 
-**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language subtag. If no match is found and `fallbackLocale` resolves to a registered locale, it falls back to that; otherwise the original value is kept. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
+**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language and script. If no match is found and `fallbackLocale` resolves to a registered locale, it falls back to that; otherwise the original value is kept. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
+
+A locale written in another script is never substituted, so Simplified Chinese is not offered to a reader of Traditional Chinese, and vice versa. The script is inferred from the region when the tag doesn’t spell it out, so `zh-TW` asks for Traditional Chinese even though it doesn’t say `Hant`. A tag with neither a script nor a region, such as a bare `zh`, asks for the language in whichever script is available and therefore matches either.
 
 ```js
 // locales registered: ['en-US', 'fr', 'ja'], fallbackLocale: 'en-US'
 await locale.set('en-CA'); // language match → locale.current = 'en-US'
 await locale.set('zh-TW'); // no match → falls back to 'en-US'
+
+// locales registered: ['en-US', 'zh-CN'], fallbackLocale: 'en-US'
+await locale.set('zh'); // any script accepted → locale.current = 'zh-CN'
+await locale.set('zh-TW'); // Traditional Chinese unavailable → falls back to 'en-US'
 ```
 
 #### `isRTL(locale?)`
@@ -235,11 +241,16 @@ In a Svelte template:
 
 #### `getLocaleFromNavigator()`
 
-Returns the user’s preferred locale from the browser (`navigator.languages[0]` or `navigator.language`).
+Returns the user’s preferred locale from the browser. Each of `navigator.languages` is tried in order and negotiated against the registered locales, so a language further down the list wins when the ones before it are unavailable — including when the first one is only unavailable in the script it asks for. Falls back to `navigator.language` when the list is empty.
+
+Call it after registering your locales to get an available locale code back. When nothing is registered yet, or when none of the preferred languages matches, the first one is returned as is and `locale.set()` negotiates again and applies `fallbackLocale`.
 
 ```js
 import { getLocaleFromNavigator } from '@sveltia/i18n';
 const lang = getLocaleFromNavigator(); // e.g. 'ja'
+
+// locales registered: ['en-US', 'ja'], navigator.languages: ['fr-FR', 'ja-JP']
+getLocaleFromNavigator(); // → 'ja'
 ```
 
 ---
@@ -875,7 +886,7 @@ Sveltia I18n is designed to be a modern alternative to [svelte-i18n](https://git
 | `addMessages()` | `addMessages()` | Variadic (`...maps`) signature supported. |
 | `register()` | `register()` | Identical. |
 | `waitLocale()` | `waitLocale()` | Identical. |
-| `getLocaleFromNavigator()` | `getLocaleFromNavigator()` | Identical. |
+| `getLocaleFromNavigator()` | `getLocaleFromNavigator()` | Negotiates all of `navigator.languages` against the registered locales instead of returning the first one as is. |
 | `getLocaleFromHostname()` | `getLocaleFromHostname()` | Identical. |
 | `getLocaleFromPathname()` | `getLocaleFromPathname()` | Identical. |
 | `getLocaleFromQueryString()` | `getLocaleFromQueryString()` | Identical. |

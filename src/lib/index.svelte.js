@@ -184,8 +184,62 @@ const assertRegExp = (label, value) => {
 // --- Messages ---
 
 /**
+ * A locale tag broken down into what locale negotiation compares.
+ * @typedef {object} ParsedLocaleTag
+ * @property {string} language Language subtag, such as `zh`.
+ * @property {string | undefined} script Script the locale is written in, such as `Hant`. It is
+ * `undefined` only for a language whose script cannot be determined, such as an unassigned code.
+ * @property {boolean} anyScript Whether the tag leaves the script open, which is the case when it
+ * has neither a script nor a region, such as a bare `zh`.
+ */
+
+/**
+ * Parsed locale tags, keyed by the tag. `Intl.Locale` is not cheap to construct, and the same tags
+ * are parsed over and over, every time a locale is registered or activated.
+ *
+ * A plain `Map` rather than a `SvelteMap`, because this is a pure cache of static `Intl` data that
+ * nothing should react to.
+ * @type {Map<string, ParsedLocaleTag | undefined>}
+ */
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const parsedTags = new Map();
+
+/**
+ * Parse a locale tag into the language and the script it’s written in. The script is inferred from
+ * the region when the tag doesn’t spell it out, so `zh-TW` is parsed as Traditional Chinese.
+ * @param {string} tag Locale tag.
+ * @returns {ParsedLocaleTag | undefined} The parsed tag, or `undefined` if it’s not a well-formed
+ * BCP 47 tag.
+ */
+const parseLocaleTag = (tag) => {
+  if (!parsedTags.has(tag)) {
+    try {
+      const parsed = new Intl.Locale(tag);
+      const { language, script, region } = parsed;
+
+      parsedTags.set(tag, {
+        language,
+        script: script ?? parsed.maximize().script,
+        // A tag with neither a script nor a region, e.g. `zh`, asks for the language in whichever
+        // script is available, unlike `zh-TW`, which asks for Traditional Chinese
+        anyScript: !script && !region,
+      });
+    } catch {
+      parsedTags.set(tag, undefined);
+    }
+  }
+
+  return parsedTags.get(tag);
+};
+
+/**
  * Negotiate the best available locale for a requested tag.
- * 1. Exact match  2. Same language subtag (e.g. En-CA → en-US)  3. Original value.
+ * 1. Exact match  2. Same language and script (en-CA → en-US)  3. Original value.
+ *
+ * A locale written in another script is never substituted, so Simplified Chinese (`zh-CN`) is not
+ * offered to a reader of Traditional Chinese (`zh-TW`), and vice versa. Regional variants sharing a
+ * script still match each other, so `pt-PT` resolves to `pt-BR`. A requested tag with neither a
+ * script nor a region, such as a bare `zh`, matches a locale in any script.
  * @param {string} requested The requested locale tag.
  * @param {string[]} available List of available locale codes.
  * @returns {string} The best-matching available locale, or `requested` if no match is found.
@@ -194,21 +248,23 @@ const negotiateLocale = (requested, available) => {
   if (!requested || !available.length) return requested;
   if (available.includes(requested)) return requested;
 
-  try {
-    const lang = new Intl.Locale(requested).language;
+  const parsedRequest = parseLocaleTag(requested);
 
-    return (
-      available.find((l) => {
-        try {
-          return new Intl.Locale(l).language === lang;
-        } catch {
-          return false;
-        }
-      }) ?? requested
-    );
-  } catch {
-    return requested;
-  }
+  if (!parsedRequest) return requested;
+
+  const { language, script, anyScript } = parsedRequest;
+
+  return (
+    available.find((code) => {
+      const parsedCode = parseLocaleTag(code);
+
+      return (
+        !!parsedCode &&
+        parsedCode.language === language &&
+        (anyScript || parsedCode.script === script)
+      );
+    }) ?? requested
+  );
 };
 
 /**
@@ -446,12 +502,26 @@ const register = (localeCode, loader) => {
 };
 
 /**
- * Get the user’s preferred locale from the browser.
- * @returns {string | undefined} The first navigator language, or `undefined` in non-browser
- * environments.
+ * Get the user’s preferred locale from the browser. The browser’s preferred languages are tried in
+ * order and negotiated against the registered locales, so a language further down the list wins
+ * when the ones before it are unavailable — including when the first one is only unavailable in the
+ * script it asks for, as for a reader of Traditional Chinese who also accepts Japanese.
+ *
+ * The first preferred language is returned as is when no locale is registered yet, or when none of
+ * them matches; {@link locale.set} negotiates again and applies the fallback locale in that case.
+ * @returns {string | undefined} A locale code, or `undefined` in non-browser environments.
  */
-const getLocaleFromNavigator = () =>
-  typeof navigator === 'undefined' ? undefined : (navigator.languages?.[0] ?? navigator.language);
+const getLocaleFromNavigator = () => {
+  if (typeof navigator === 'undefined') return undefined;
+
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+
+  return (
+    languages
+      .map((lang) => negotiateLocale(lang, locales))
+      .find((code) => locales.includes(code)) ?? languages[0]
+  );
+};
 
 /**
  * Shared implementation for {@link getLocaleFromHostname} and {@link getLocaleFromPathname}.

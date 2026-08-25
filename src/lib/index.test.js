@@ -176,6 +176,32 @@ describe('getLocaleFromNavigator', () => {
     expect(getLocaleFromNavigator()).toBeUndefined();
     vi.unstubAllGlobals();
   });
+
+  it('negotiates the preferred languages against the registered locales', () => {
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('ja', { greeting: 'こんにちは' });
+    // `fr-FR` is unavailable, so the second choice wins — and is returned as `ja`, not `ja-JP`
+    vi.stubGlobal('navigator', { languages: ['fr-FR', 'ja-JP'], language: 'fr-FR' });
+    expect(getLocaleFromNavigator()).toBe('ja');
+    vi.unstubAllGlobals();
+  });
+
+  it('skips a language that is only available in another script', () => {
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('zh-CN', { greeting: '你好' });
+    addMessages('ja', { greeting: 'こんにちは' });
+    vi.stubGlobal('navigator', { languages: ['zh-TW', 'ja'], language: 'zh-TW' });
+    expect(getLocaleFromNavigator()).toBe('ja');
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the first preferred language when none of them is available', () => {
+    addMessages('en-US', { greeting: 'Hello' });
+    // `locale.set()` negotiates again and applies the fallback locale
+    vi.stubGlobal('navigator', { languages: ['de-DE', 'fr'], language: 'de-DE' });
+    expect(getLocaleFromNavigator()).toBe('de-DE');
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('init', () => {
@@ -1197,6 +1223,44 @@ describe('locale negotiation', () => {
   it('keeps the value unchanged when no language match exists', () => {
     locale.set('de');
     expect(locale.current).toBe('de');
+  });
+
+  it('does not substitute a locale written in another script (zh-TW → not zh-CN)', () => {
+    _reset();
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('zh-CN', { greeting: '你好' });
+    // Simplified Chinese is no use to a reader of Traditional Chinese
+    locale.set('zh-TW');
+    expect(locale.current).toBe('zh-TW');
+    locale.set('zh-Hant');
+    expect(locale.current).toBe('zh-Hant');
+  });
+
+  it('matches a locale in any script when the tag has no script or region (zh → zh-CN)', () => {
+    _reset();
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('zh-CN', { greeting: '你好' });
+    locale.set('zh');
+    expect(locale.current).toBe('zh-CN');
+  });
+
+  it('matches a locale in the requested script (zh-Hant → zh-TW)', () => {
+    _reset();
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('zh-TW', { greeting: '你好' });
+    locale.set('zh-Hant');
+    expect(locale.current).toBe('zh-TW');
+    locale.set('zh-MO');
+    expect(locale.current).toBe('zh-TW');
+  });
+
+  it('matches regional variants sharing a script (pt-PT → pt-BR)', () => {
+    _reset();
+    addMessages('pt-BR', { greeting: 'Olá' });
+    locale.set('pt-PT');
+    expect(locale.current).toBe('pt-BR');
+    locale.set('fr-CA');
+    expect(locale.current).toBe('fr-CA');
   });
 
   it('bypasses negotiation when locales list is empty', () => {
