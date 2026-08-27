@@ -20,6 +20,7 @@ ignorePaths:
   - src/routes/locales/**/*.yaml
 words:
   - Bonjour
+  - CLDR
   - cooldown
   - dimanche
   - GHSA

@@ -694,7 +694,22 @@ notifications: |
     *   {{You have {$count} notifications.}}
 ```
 
-French treats 0 as singular:
+Note the two kinds of key at work here. `one` is a **plural category**, resolved through the locale’s CLDR rules, so which numbers it covers depends on the language. `0` is a **literal value**, matched only when the operand is exactly that number, and matched before any category is considered.
+
+The distinction matters when a language doesn’t have the category you reach for. Chinese, Japanese, Korean and Vietnamese have only `other`, so a variant keyed `one` in those locales never matches and every count silently falls through to `*`. Where such a language still needs different wording for a single item, select on the literal `1` instead:
+
+```yaml
+# ko.yaml
+conflict: |
+  .input {$count :integer}
+  .match $count
+    1   {{이 폴더에 같은 이름의 파일이 이미 있습니다.}}
+    *   {{이 폴더에 이름이 같은 파일 {$count}개가 이미 있습니다.}}
+```
+
+Reach for a literal only when the category is unavailable. Where a category exists, prefer it: Polish and Russian `one` also covers 21, 31, 101 and so on, which a literal `1` would miss.
+
+French treats 0 as singular. It also has a `many` form, which applies to round millions, where the noun takes `de`:
 
 <!-- cSpell:disable -->
 
@@ -703,14 +718,15 @@ French treats 0 as singular:
 notifications: |
   .input {$count :integer}
   .match $count
-    0   {{Vous n’avez aucune notification.}}
-    one {{Vous avez {$count} notification.}}
-    *   {{Vous avez {$count} notifications.}}
+    0    {{Vous n’avez aucune notification.}}
+    one  {{Vous avez {$count} notification.}}
+    many {{Vous avez {$count} de notifications.}}
+    *    {{Vous avez {$count} notifications.}}
 ```
 
 <!-- cSpell:enable -->
 
-Polish has four plural forms — `one`, `few` (2–4, except teens), `many` (5+, teens), and `*` (fractions) — making it a good stress-test for pluralization logic:
+Polish has four plural forms, making it a good stress-test for pluralization logic. `one` covers 1, `few` covers numbers ending in 2–4 apart from the teens (2–4, 22–24, 32–34, …), and `many` covers everything else, including 0. The fourth is `other`, which in Polish applies to fractions only — so with `:integer` input it never comes up, and the `*` catch-all every `.match` is required to have goes unused:
 
 <!-- cSpell:disable -->
 
@@ -746,7 +762,7 @@ Arabic has six plural forms (`zero`, `one`, `two`, `few`, `many`, `*`):
 notifications: |
   .input {$count :integer}
   .match $count
-    0    {{ليس لديك أي إشعارات.}}
+    zero {{ليس لديك أي إشعارات.}}
     one  {{لديك إشعار واحد.}}
     two  {{لديك إشعاران.}}
     few  {{لديك {$count} إشعارات.}}
