@@ -206,7 +206,7 @@ await locale.set('fr'); // switch to French, triggers any registered loader, upd
 
 `locale.set(value)` returns a `Promise<void>` that resolves once any loader registered for the new locale has finished loading. It also keeps `document.documentElement.lang` and `document.documentElement.dir` (`ltr`/`rtl`) in sync automatically.
 
-**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language and script. If no match is found and `fallbackLocale` resolves to a registered locale, it falls back to that; otherwise the original value is kept. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
+**Locale negotiation:** if the requested value is not in the registered `locales` list, `locale.set()` tries to find the best match by language, script and region. If no match is found and `fallbackLocale` resolves to a registered locale, it falls back to that; otherwise the original value is kept. For example, if `en-US` is registered and the user’s browser reports `en-CA`, `locale.current` is set to `en-US`.
 
 A locale written in another script is never substituted, so Simplified Chinese is not offered to a reader of Traditional Chinese, and vice versa. The script is inferred from the region when the tag doesn’t spell it out, so `zh-TW` asks for Traditional Chinese even though it doesn’t say `Hant`. A tag with neither a script nor a region, such as a bare `zh`, asks for the language in whichever script is available and therefore matches either.
 
@@ -218,6 +218,26 @@ await locale.set('zh-TW'); // no match → falls back to 'en-US'
 // locales registered: ['en-US', 'zh-CN'], fallbackLocale: 'en-US'
 await locale.set('zh'); // any script accepted → locale.current = 'zh-CN'
 await locale.set('zh-TW'); // Traditional Chinese unavailable → falls back to 'en-US'
+```
+
+**Picking between regional variants:** when several registered locales match a request equally well, as `en-US` and `en-GB` both do for a bare `en`, the tie is broken by region rather than by registration order:
+
+1. The region [CLDR](https://cldr.unicode.org/) considers most likely for the request, which is read from `Intl.Locale`, so `en` picks `en-US` and `es` picks `es-ES`. Because it’s the whole tag that’s considered, not just the language, `zh-Hant` picks `zh-TW` over `zh-HK`.
+2. The region most likely for the language on its own, which only differs from the above when the request names a region you haven’t registered, so `en-CA` picks `en-US` over `en-GB`.
+3. Registration order, so you can still express a preference `Intl` has no opinion on by registering that locale first.
+
+```js
+// locales registered: ['en-GB', 'en-CA', 'en-US'], fallbackLocale: 'en-US'
+await locale.set('en'); // most likely region for 'en' → locale.current = 'en-US'
+
+// locales registered: ['es-CO', 'es-AR', 'es-ES'], fallbackLocale: 'es-ES'
+await locale.set('es'); // most likely region for 'es' → locale.current = 'es-ES'
+
+// locales registered: ['en-GB', 'en-US'], fallbackLocale: 'en-US'
+await locale.set('en-CA'); // 'en-CA' unavailable, most likely region for 'en' → 'en-US'
+
+// locales registered: ['zh-MO', 'zh-HK', 'zh-TW'], fallbackLocale: 'zh-TW'
+await locale.set('zh-Hant'); // most likely region for Traditional Chinese → 'zh-TW'
 ```
 
 #### `isRTL(locale?)`
@@ -241,7 +261,7 @@ In a Svelte template:
 
 #### `getLocaleFromNavigator()`
 
-Returns the user’s preferred locale from the browser. Each of `navigator.languages` is tried in order and negotiated against the registered locales, so a language further down the list wins when the ones before it are unavailable — including when the first one is only unavailable in the script it asks for. Falls back to `navigator.language` when the list is empty.
+Returns the user’s preferred locale from the browser. Each of `navigator.languages` is tried in order and negotiated against the registered locales, so a language further down the list wins when the ones before it are unavailable — including when the first one is only unavailable in the script it asks for. A browser language without a region, such as a bare `en`, resolves to the most likely regional variant you have registered, as described under [`locale`](#locale-1). Falls back to `navigator.language` when the list is empty.
 
 Call it after registering your locales to get an available locale code back. When nothing is registered yet, or when none of the preferred languages matches, the first one is returned as is and `locale.set()` negotiates again and applies `fallbackLocale`.
 

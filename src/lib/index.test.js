@@ -1263,6 +1263,104 @@ describe('locale negotiation', () => {
     expect(locale.current).toBe('fr-CA');
   });
 
+  it('prefers the most likely region over registration order (en → en-US)', () => {
+    _reset();
+    addMessages('en-GB', { greeting: 'Hello' });
+    addMessages('en-CA', { greeting: 'Hello' });
+    addMessages('en-US', { greeting: 'Hello' });
+    // CLDR considers `US` the most likely region for a bare `en`, so the locale registered last
+    // still wins over the two that share its language and script
+    locale.set('en');
+    expect(locale.current).toBe('en-US');
+  });
+
+  it('prefers the most likely region regardless of registration order (es → es-ES)', () => {
+    _reset();
+    addMessages('es-AR', { greeting: 'Hola' });
+    addMessages('es-ES', { greeting: 'Hola' });
+    addMessages('es-CO', { greeting: 'Hola' });
+    locale.set('es');
+    expect(locale.current).toBe('es-ES');
+
+    // The same request resolves the same way when the candidates are registered in another order
+    _reset();
+    addMessages('es-CL', { greeting: 'Hola' });
+    addMessages('es-CO', { greeting: 'Hola' });
+    addMessages('es-ES', { greeting: 'Hola' });
+    locale.set('es');
+    expect(locale.current).toBe('es-ES');
+  });
+
+  it('prefers the region most likely for the requested script (zh-Hant → zh-TW)', () => {
+    _reset();
+    addMessages('zh-MO', { greeting: '你好' });
+    addMessages('zh-HK', { greeting: '你好' });
+    addMessages('zh-TW', { greeting: '你好' });
+    // `zh-Hant` names no region, and CLDR pairs Traditional Chinese with `TW`. Ranking on the
+    // language alone would say `CN`, which none of these candidates matches.
+    locale.set('zh-Hant');
+    expect(locale.current).toBe('zh-TW');
+  });
+
+  it('prefers the requested region over the most likely one (en-GB → en-GB)', () => {
+    _reset();
+    addMessages('en-US', { greeting: 'Hello' });
+    addMessages('en-GB', { greeting: 'Hello' });
+    // Exercises the ranking rather than the exact-match shortcut, which `locale.set('en-GB')`
+    // would take before negotiation ever runs
+    locale.set('en-GB-u-ca-gregory');
+    expect(locale.current).toBe('en-GB');
+  });
+
+  it('falls back to the language’s most likely region when the requested one is absent (en-CA → en-US)', () => {
+    _reset();
+    addMessages('en-GB', { greeting: 'Hello' });
+    addMessages('en-US', { greeting: 'Hello' });
+    // No `en-CA` to match, so the second tier picks `US`, the most likely region for `en`
+    locale.set('en-CA');
+    expect(locale.current).toBe('en-US');
+  });
+
+  it('falls back to registration order when no candidate matches a likely region', () => {
+    _reset();
+    addMessages('en-NZ', { greeting: 'Hello' });
+    addMessages('en-IE', { greeting: 'Hello' });
+    // Neither candidate is `CA` (requested) nor `US` (most likely for `en`), so the first
+    // registered wins and an app keeps a say in the outcome
+    locale.set('en-CA');
+    expect(locale.current).toBe('en-NZ');
+  });
+
+  it('parses a tag that spells out both its script and its region (zh-Hant-TW)', () => {
+    _reset();
+    addMessages('zh-Hant-TW', { greeting: '你好' });
+    addMessages('zh-Hans-CN', { greeting: '你好' });
+    // Nothing is left for CLDR to infer here, so parsing takes the shortcut that skips
+    // `maximize()`. The script filter still tells the two candidates apart.
+    locale.set('zh-Hant');
+    expect(locale.current).toBe('zh-Hant-TW');
+  });
+
+  it('falls back to registration order for a language CLDR has no likely region for', () => {
+    _reset();
+    addMessages('tlh-US', { greeting: 'nuqneH' });
+    addMessages('tlh-DE', { greeting: 'nuqneH' });
+    // `tlh` is a well-formed tag, but CLDR pairs no region with it, so neither ranking tier has
+    // anything to go on and the first registered locale wins
+    locale.set('tlh');
+    expect(locale.current).toBe('tlh-US');
+  });
+
+  it('never lets region ranking override the script filter (zh-TW → not zh-CN)', () => {
+    _reset();
+    addMessages('zh-CN', { greeting: '你好' });
+    addMessages('zh-SG', { greeting: '你好' });
+    // Both candidates are Simplified Chinese, and `CN` is the most likely region for `zh` — but
+    // neither is any use to a reader of Traditional Chinese, so ranking must not reach them
+    locale.set('zh-TW');
+    expect(locale.current).toBe('zh-TW');
+  });
+
   it('bypasses negotiation when locales list is empty', () => {
     _reset();
     locale.set('en-CA');

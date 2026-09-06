@@ -189,6 +189,11 @@ const assertRegExp = (label, value) => {
  * @property {string} language Language subtag, such as `zh`.
  * @property {string | undefined} script Script the locale is written in, such as `Hant`. It is
  * `undefined` only for a language whose script cannot be determined, such as an unassigned code.
+ * @property {string | undefined} region Region subtag the tag spells out, such as `TW`. It is
+ * `undefined` for a tag that names no region, such as `zh` or `zh-Hant`.
+ * @property {string | undefined} preferredRegion Region to prefer when several available locales
+ * match equally well: the tag’s own region, or the one CLDR considers most likely for it, so a
+ * bare `en` prefers `US` and `zh-Hant` prefers `TW`.
  * @property {boolean} anyScript Whether the tag leaves the script open, which is the case when it
  * has neither a script nor a region, such as a bare `zh`.
  */
@@ -205,8 +210,9 @@ const assertRegExp = (label, value) => {
 const parsedTags = new Map();
 
 /**
- * Parse a locale tag into the language and the script it’s written in. The script is inferred from
- * the region when the tag doesn’t spell it out, so `zh-TW` is parsed as Traditional Chinese.
+ * Parse a locale tag into the language, the script it’s written in, and the region to prefer. Both
+ * are inferred from CLDR’s likely-subtags data when the tag doesn’t spell them out, so `zh-TW` is
+ * parsed as Traditional Chinese and a bare `en` prefers the `US` region.
  * @param {string} tag Locale tag.
  * @returns {ParsedLocaleTag | undefined} The parsed tag, or `undefined` if it’s not a well-formed
  * BCP 47 tag.
@@ -216,10 +222,15 @@ const parseLocaleTag = (tag) => {
     try {
       const parsed = new Intl.Locale(tag);
       const { language, script, region } = parsed;
+      // `maximize()` fills in whatever the tag leaves out, so it’s only needed when something is
+      // missing. It’s the expensive part of parsing, hence the cache around this whole function.
+      const maximized = script && region ? undefined : parsed.maximize();
 
       parsedTags.set(tag, {
         language,
-        script: script ?? parsed.maximize().script,
+        script: script ?? maximized?.script,
+        region,
+        preferredRegion: region ?? maximized?.region,
         // A tag with neither a script nor a region, e.g. `zh`, asks for the language in whichever
         // script is available, unlike `zh-TW`, which asks for Traditional Chinese
         anyScript: !script && !region,
@@ -240,6 +251,14 @@ const parseLocaleTag = (tag) => {
  * offered to a reader of Traditional Chinese (`zh-TW`), and vice versa. Regional variants sharing a
  * script still match each other, so `pt-PT` resolves to `pt-BR`. A requested tag with neither a
  * script nor a region, such as a bare `zh`, matches a locale in any script.
+ *
+ * Where several available locales match a request equally well, as `en-US` and `en-GB` both do for
+ * a bare `en`, the tie is broken by region:
+ * 1. The region CLDR considers most likely for the request, so `en` picks `en-US` and `es` picks
+ * `es-ES`, rather than whichever happened to be registered first.
+ * 2. The region most likely for the language alone, which differs from the above only when the
+ * request names a region that isn’t available, so `en-CA` picks `en-US` over `en-GB`.
+ * 3. Registration order, so an app keeps a say where `Intl` has no opinion.
  * @param {string} requested The requested locale tag.
  * @param {string[]} available List of available locale codes.
  * @returns {string} The best-matching available locale, or `requested` if no match is found.
@@ -252,18 +271,31 @@ const negotiateLocale = (requested, available) => {
 
   if (!parsedRequest) return requested;
 
-  const { language, script, anyScript } = parsedRequest;
+  const { language, script, anyScript, preferredRegion } = parsedRequest;
+
+  const candidates = available.filter((code) => {
+    const parsed = parseLocaleTag(code);
+
+    return !!parsed && parsed.language === language && (anyScript || parsed.script === script);
+  });
+
+  // Nothing to rank: no match at all, or no ambiguity about which match to use
+  if (candidates.length < 2) return candidates[0] ?? requested;
+
+  /**
+   * Find the candidate written for the given region, if any.
+   * @param {string | undefined} region Region subtag to look for.
+   * @returns {string | undefined} Locale code, or `undefined` if no candidate names that region.
+   */
+  const findByRegion = (region) =>
+    region ? candidates.find((code) => parseLocaleTag(code)?.region === region) : undefined;
 
   return (
-    available.find((code) => {
-      const parsedCode = parseLocaleTag(code);
-
-      return (
-        !!parsedCode &&
-        parsedCode.language === language &&
-        (anyScript || parsedCode.script === script)
-      );
-    }) ?? requested
+    findByRegion(preferredRegion) ??
+    // Only reached for a request naming a region of its own, whose own region didn’t match. Parsing
+    // the bare language reuses the same cache, so this costs nothing after the first lookup.
+    findByRegion(parseLocaleTag(language)?.preferredRegion) ??
+    candidates[0]
   );
 };
 
