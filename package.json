@@ -27,6 +27,10 @@
   },
   "sideEffects": false,
   "type": "module",
+  "imports": {
+    "#lib": "./src/lib/index.svelte.js",
+    "#lib/*": "./src/lib/*"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.svelte.d.ts",

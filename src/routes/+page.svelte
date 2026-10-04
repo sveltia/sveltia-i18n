@@ -14,7 +14,7 @@
     number,
     registerMessageFunction,
     time,
-  } from '$lib/index.svelte.js';
+  } from '#lib';
 
   const currentLocale = $derived(locale.current);
 

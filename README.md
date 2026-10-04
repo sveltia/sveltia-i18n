@@ -96,8 +96,8 @@ init({ fallbackLocale: 'en-US' });
 
 ```js
 // src/routes/+layout.js
-import { browser } from '$app/environment';
-import '$lib/i18n'; // initialize
+import { browser } from '$app/env';
+import '#lib/i18n.js'; // initialize
 import { locale, waitLocale, getLocaleFromNavigator } from '@sveltia/i18n';
 
 export const load = async () => {
@@ -105,6 +105,8 @@ export const load = async () => {
   await waitLocale();
 };
 ```
+
+The examples here use SvelteKit 3 imports. On SvelteKit 2, import `browser` from `$app/environment` and use `$lib/i18n` instead of `#lib/i18n.js`.
 
 ### Server-side locale via `Accept-Language`
 
@@ -132,8 +134,8 @@ For client-only Svelte apps (no SSR), or for SvelteKit apps using the [`ssr = fa
 
 ```js
 // src/routes/+layout.js
-import { browser } from '$app/environment';
-import '$lib/i18n'; // initialize
+import { browser } from '$app/env';
+import '#lib/i18n.js'; // initialize
 import {
   locale,
   waitLocale,
