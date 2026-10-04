@@ -86,6 +86,11 @@ Intl.MessageFormat ??= MessageFormat;
 /** @type {string} */
 let _locale = $state('');
 /**
+ * The locale last passed to `locale.set()`, before negotiation. Kept so the active locale can be
+ * negotiated again as more locales are registered.
+ */
+let requestedLocale = '';
+/**
  * All registered locales.
  * @type {string[]}
  */
@@ -332,13 +337,31 @@ const registerLocaleCode = (localeCode) => {
 };
 
 /**
- * Re-negotiate the active locale if `locale.set()` was called before any locales were registered.
- * Shared by {@link addMessages} and {@link register}.
+ * Resolve a requested locale against the registered locales, falling back to `fallbackLocale` when
+ * no registered locale matches (only when it actually resolved to a registered locale; otherwise
+ * the original value is kept).
+ * @param {string} value Requested locale.
+ * @returns {string} Locale to activate.
+ */
+const resolveLocale = (value) => {
+  if (!value || !locales.length) return value;
+
+  const resolved = negotiateLocale(value, locales);
+
+  return !locales.includes(resolved) && _resolvedFallback && locales.includes(_resolvedFallback)
+    ? _resolvedFallback
+    : resolved;
+};
+
+/**
+ * Re-negotiate the active locale if registering a locale changed what the one last requested with
+ * `locale.set()` resolves to. That happens when it was called before the requested locale, or any
+ * locale at all, was registered. Shared by {@link addMessages} and {@link register}.
  */
 const renegotiateActiveLocale = () => {
-  if (_locale && !locales.includes(_locale)) {
+  if (requestedLocale && resolveLocale(requestedLocale) !== _locale) {
     // eslint-disable-next-line no-use-before-define
-    locale.set(_locale);
+    locale.set(requestedLocale);
   }
 };
 
@@ -411,10 +434,19 @@ const waitLocale = (localeCode = _locale) => {
           loaderPromises.delete(localeCode);
 
           // If the failed `locale` is still the active one and has no `dictionary` entry, fall back
-          // so that `isLoading()` does not remain `true` forever.
-          if (_locale === localeCode && !dictionary[localeCode] && _resolvedFallback) {
-            _locale = _resolvedFallback;
+          // so that `isLoading()` does not remain `true` forever. Going through `locale.set()` also
+          // triggers the fallback locale’s own loader and updates `<html lang>`.
+          if (
+            _locale === localeCode &&
+            !dictionary[localeCode] &&
+            _resolvedFallback &&
+            _resolvedFallback !== localeCode
+          ) {
+            // eslint-disable-next-line no-use-before-define
+            return locale.set(_resolvedFallback);
           }
+
+          return undefined;
         },
       );
 
@@ -463,19 +495,9 @@ const locale = {
   set(value) {
     assertString('locale.set: value', value);
 
-    let resolved = locales.length ? negotiateLocale(value, locales) : value;
+    requestedLocale = value;
 
-    // If no registered locale matched, fall back to `fallbackLocale` (only when it actually
-    // resolved to a registered locale; otherwise keep the original value).
-    if (
-      value &&
-      locales.length &&
-      !locales.includes(resolved) &&
-      _resolvedFallback &&
-      locales.includes(_resolvedFallback)
-    ) {
-      resolved = _resolvedFallback;
-    }
+    const resolved = resolveLocale(value);
 
     _locale = resolved;
 
@@ -673,6 +695,19 @@ const init = (args) => {
 // --- Formatting ---
 
 /**
+ * Get a compiled message. Only the dictionary’s own keys are considered, so a key such as
+ * `constructor` or `toString` is not resolved to an `Object.prototype` member.
+ * @param {string} localeCode Locale.
+ * @param {string} key Message key.
+ * @returns {Intl.MessageFormat | undefined} The message, or `undefined` if not found.
+ */
+const getMessage = (localeCode, key) => {
+  const messages = dictionary[localeCode];
+
+  return messages && Object.hasOwn(messages, key) ? messages[key] : undefined;
+};
+
+/**
  * Format a message by key.
  *
  * Supports two call signatures (matching svelte-i18n):
@@ -710,8 +745,8 @@ const format = (
 
   try {
     result =
-      dictionary[active]?.[key]?.format(values) ??
-      (active !== fallback ? dictionary[fallback]?.[key]?.format(values) : undefined);
+      getMessage(active, key)?.format(values) ??
+      (active !== fallback ? getMessage(fallback, key)?.format(values) : undefined);
   } finally {
     messageFormats = undefined;
   }
@@ -937,9 +972,11 @@ const formatDateTimeValue = (kind, value, options = {}) => {
 
   const { locale: presetLocale, ...named } = getCallPreset(kind, fmt);
 
-  return new Intl.DateTimeFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(
-    value,
-  );
+  // An empty `_locale` (none set yet) is not a valid tag; use the runtime default instead
+  return new Intl.DateTimeFormat(loc ?? presetLocale ?? (_locale || undefined), {
+    ...named,
+    ...rest,
+  }).format(value);
 };
 
 /**
@@ -973,7 +1010,11 @@ const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
 
   const { locale: presetLocale, ...named } = getCallPreset('number', fmt);
 
-  return new Intl.NumberFormat(loc ?? presetLocale ?? _locale, { ...named, ...rest }).format(value);
+  // An empty `_locale` (none set yet) is not a valid tag; use the runtime default instead
+  return new Intl.NumberFormat(loc ?? presetLocale ?? (_locale || undefined), {
+    ...named,
+    ...rest,
+  }).format(value);
 };
 
 /**
@@ -982,6 +1023,7 @@ const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
  */
 const _reset = () => {
   _locale = '';
+  requestedLocale = '';
   locales.splice(0);
   Object.keys(dictionary).forEach((k) => delete dictionary[k]);
   loaderQueue.clear();

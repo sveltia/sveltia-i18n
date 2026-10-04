@@ -318,6 +318,16 @@ describe('addMessages', () => {
     expect(isLoading()).toBe(false);
     expect(format('hello')).toBe('Hello!');
   });
+
+  it('switches to the requested locale once it is registered after a fallback', () => {
+    init({ fallbackLocale: 'en', initialLocale: 'fr' });
+    addMessages('en', { hello: 'Hello!' });
+    expect(locale.current).toBe('en'); // temporarily falls back
+
+    addMessages('fr', { hello: 'Bonjour !' });
+    expect(locale.current).toBe('fr');
+    expect(format('hello')).toBe('Bonjour !');
+  });
 });
 
 describe('format / _', () => {
@@ -347,6 +357,11 @@ describe('format / _', () => {
 
   it('returns the key itself when no default is provided for a missing key', () => {
     expect(format('missing')).toBe('missing');
+  });
+
+  it('does not resolve keys to Object.prototype members', () => {
+    expect(format('constructor')).toBe('constructor');
+    expect(format('toString', { default: 'Fallback' })).toBe('Fallback');
   });
 
   it('falls back to the fallback locale when the active locale has no entry', () => {
@@ -961,6 +976,18 @@ describe('register + waitLocale', () => {
     // After rejection, locale should fall back to 'en' so isLoading() is false
     expect(isLoading()).toBe(false);
     expect(locale.current).toBe('en');
+  });
+
+  it('loads the fallback locale’s messages when the loader rejects', async () => {
+    init({ fallbackLocale: 'en' });
+    register('en', () => Promise.resolve({ hello: 'Hello' }));
+    register('fr', () => Promise.reject(new Error('network error')));
+    await locale.set('fr');
+
+    expect(locale.current).toBe('en');
+    expect(isLoading()).toBe(false);
+    expect(format('hello')).toBe('Hello');
+    expect(document.documentElement.lang).toBe('en');
   });
 
   it('re-settles the locale when register() is called after init()', async () => {
@@ -1989,6 +2016,13 @@ describe('time() standalone formatter', () => {
 describe('number() standalone formatter', () => {
   beforeEach(() => {
     init({ fallbackLocale: 'en-US', initialLocale: 'en-US' });
+  });
+
+  it('does not throw before a locale is set', () => {
+    _reset();
+    expect(() => number(1)).not.toThrow();
+    expect(() => date(new Date())).not.toThrow();
+    expect(() => time(new Date())).not.toThrow();
   });
 
   it('formats a plain number', () => {
