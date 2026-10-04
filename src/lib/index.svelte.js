@@ -1,6 +1,5 @@
 import { MessageFormat } from 'messageformat';
 import { DefaultFunctions, DraftFunctions, getLocaleDir } from 'messageformat/functions';
-import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 
 // Polyfill
 Intl.MessageFormat ??= MessageFormat;
@@ -405,10 +404,14 @@ const addMessages = (localeCode, ...maps) => {
 
 // --- Loader ---
 
-/** @type {SvelteMap<string, () => Promise<Record<string, string>>>} */
-const loaderQueue = new SvelteMap();
-/** @type {SvelteMap<string, Promise<void>>} */
-const loaderPromises = new SvelteMap();
+// Plain `Map`s rather than `SvelteMap`s, because these are private bookkeeping that nothing reacts
+// to; `isLoading()` reads `dictionary` instead.
+/** @type {Map<string, () => Promise<Record<string, string>>>} */
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const loaderQueue = new Map();
+/** @type {Map<string, Promise<void>>} */
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const loaderPromises = new Map();
 
 /**
  * Execute the registered loader for the given locale (or the current locale if omitted) and wait
@@ -422,42 +425,42 @@ const waitLocale = (localeCode = _locale) => {
 
   if (!localeCode) return Promise.resolve();
 
-  if (!loaderPromises.has(localeCode)) {
+  let promise = loaderPromises.get(localeCode);
+
+  if (!promise) {
     const loader = loaderQueue.get(localeCode);
 
-    if (loader) {
-      const promise = Promise.resolve(loader()).then(
-        (map) => {
-          addMessages(localeCode, map);
-        },
-        () => {
-          loaderPromises.delete(localeCode);
+    promise = loader
+      ? Promise.resolve(loader()).then(
+          (map) => {
+            addMessages(localeCode, map);
+          },
+          () => {
+            loaderPromises.delete(localeCode);
 
-          // If the failed `locale` is still the active one and has no `dictionary` entry, fall back
-          // so that `isLoading()` does not remain `true` forever. Going through `locale.set()` also
-          // triggers the fallback locale’s own loader and updates `<html lang>`.
-          if (
-            _locale === localeCode &&
-            !dictionary[localeCode] &&
-            _resolvedFallback &&
-            _resolvedFallback !== localeCode
-          ) {
-            // eslint-disable-next-line no-use-before-define
-            return locale.set(_resolvedFallback);
-          }
+            // If the failed `locale` is still the active one and has no `dictionary` entry, fall
+            // back so that `isLoading()` does not remain `true` forever. Going through
+            // `locale.set()` also triggers the fallback locale’s own loader and updates
+            // `<html lang>`.
+            if (
+              _locale === localeCode &&
+              !dictionary[localeCode] &&
+              _resolvedFallback &&
+              _resolvedFallback !== localeCode
+            ) {
+              // eslint-disable-next-line no-use-before-define
+              return locale.set(_resolvedFallback);
+            }
 
-          return undefined;
-        },
-      );
+            return undefined;
+          },
+        )
+      : Promise.resolve();
 
-      loaderPromises.set(localeCode, promise);
-    } else {
-      loaderPromises.set(localeCode, Promise.resolve());
-    }
+    loaderPromises.set(localeCode, promise);
   }
 
-  /* v8 ignore next */
-  return loaderPromises.get(localeCode) ?? Promise.resolve();
+  return promise;
 };
 
 // --- Locale ---
@@ -611,7 +614,7 @@ const getLocaleFromLocationParams = (part, label, key) => {
   // The hash may carry a leading `#`, which is not part of the query string.
   const query = part === 'hash' ? window.location.hash.replace(/^#/, '') : window.location.search;
 
-  return new SvelteURLSearchParams(query).get(key) ?? undefined;
+  return new URLSearchParams(query).get(key) ?? undefined;
 };
 
 /**
@@ -708,6 +711,18 @@ const getMessage = (localeCode, key) => {
 };
 
 /**
+ * Get the locales to look a message up in, in order of preference: the active locale (or the given
+ * override), then the fallback locale if it differs.
+ * @param {string} [localeOverride] Locale override for this call.
+ * @returns {string[]} One or two locale codes.
+ */
+const getLookupLocales = (localeOverride) => {
+  const active = localeOverride ?? _locale;
+
+  return active !== _resolvedFallback ? [active, _resolvedFallback] : [active];
+};
+
+/**
  * Format a message by key.
  *
  * Supports two call signatures (matching svelte-i18n):
@@ -730,13 +745,20 @@ const format = (
   }
 
   if (typeof key === 'object') {
-    const { id, values: v = {}, locale: l, default: d, formats: f } = key;
+    const { id, ...options } = key;
 
-    return format(id, { values: v, locale: l, default: d, formats: f });
+    return format(id, options);
   }
 
-  const active = localeOverride ?? _locale;
-  const fallback = _resolvedFallback;
+  const lookupLocales = getLookupLocales(localeOverride);
+  const [active] = lookupLocales;
+
+  // Stop at the first locale that has the message, so the fallback dictionary is read (and tracked
+  // as a reactive dependency) only when needed
+  const message = lookupLocales.reduce(
+    (/** @type {Intl.MessageFormat | undefined} */ found, code) => found ?? getMessage(code, key),
+    undefined,
+  );
 
   messageFormats = formats;
 
@@ -744,9 +766,7 @@ const format = (
   let result;
 
   try {
-    result =
-      getMessage(active, key)?.format(values) ??
-      (active !== fallback ? getMessage(fallback, key)?.format(values) : undefined);
+    result = message?.format(values);
   } finally {
     messageFormats = undefined;
   }
@@ -774,10 +794,6 @@ const format = (
 const json = (prefix, { locale: localeOverride } = {}) => {
   assertNonEmptyString('json: prefix', prefix);
 
-  const active = localeOverride ?? _locale;
-  const fallback = _resolvedFallback;
-  const activeDict = dictionary[active] ?? {};
-  const fallbackDict = active !== fallback ? (dictionary[fallback] ?? {}) : {};
   const pfx = `${prefix}.`;
   const result = /** @type {Record<string, string>} */ ({});
 
@@ -794,8 +810,9 @@ const json = (prefix, { locale: localeOverride } = {}) => {
   };
 
   // Start with fallback entries, then overlay active so per-key fallback works.
-  collect(fallbackDict);
-  collect(activeDict);
+  getLookupLocales(localeOverride)
+    .reverse()
+    .forEach((code) => collect(dictionary[code] ?? {}));
 
   return Object.keys(result).length ? result : undefined;
 };
@@ -854,6 +871,15 @@ const getNamedPreset = (kind, name) =>
   customFormats[/** @type {keyof Formats} */ (kind)]?.[name] ?? BUILT_IN_FORMATS[kind]?.[name];
 
 /**
+ * Look up the group’s `_default` preset defined in `init({ formats })`.
+ * @param {string} kind One of `number`, `date`, `time` or `datetime`.
+ * @returns {DateFormatPreset | NumberFormatPreset | undefined} The preset, or `undefined` if none
+ * is defined for the kind.
+ */
+const getDefaultPreset = (kind) =>
+  customFormats[/** @type {keyof Formats} */ (kind)]?.[DEFAULT_FORMAT_KEY];
+
+/**
  * Resolve the preset for a standalone {@link date}, {@link time} or {@link number} call: the named
  * preset requested with the `format` option, falling back to the group’s `_default` preset.
  * @param {'number' | 'date' | 'time'} kind One of `number`, `date` or `time`.
@@ -862,9 +888,7 @@ const getNamedPreset = (kind, name) =>
  * call nor `init({ formats })` provides one.
  */
 const getCallPreset = (kind, name) =>
-  (name ? getNamedPreset(kind, name) : undefined) ??
-  customFormats[kind]?.[DEFAULT_FORMAT_KEY] ??
-  {};
+  (name ? getNamedPreset(kind, name) : undefined) ?? getDefaultPreset(kind) ?? {};
 
 /**
  * Resolve the preset that should override an MF2 function, preferring an override passed to the
@@ -877,7 +901,7 @@ const getMessagePreset = (kind) => {
   const spec = messageFormats?.[/** @type {keyof MessageFormats} */ (kind)];
   const preset = typeof spec === 'string' ? getNamedPreset(kind, spec) : spec;
 
-  return preset ?? customFormats[/** @type {keyof Formats} */ (kind)]?.[DEFAULT_FORMAT_KEY];
+  return preset ?? getDefaultPreset(kind);
 };
 
 /**
@@ -956,6 +980,24 @@ const MESSAGE_FUNCTIONS = {
 };
 
 /**
+ * Shared implementation for {@link date}, {@link time} and {@link number}: format a value with the
+ * preset selected by the `format` option, overlaid with any other options given.
+ * @param {typeof Intl.DateTimeFormat | typeof Intl.NumberFormat} Formatter Formatter to use.
+ * @param {'number' | 'date' | 'time'} kind Format kind to look up.
+ * @param {any} value The value to format.
+ * @param {DateFormatOptions | NumberFormatOptions} options Formatting options.
+ * @returns {string} The formatted string.
+ */
+const formatStandaloneValue = (Formatter, kind, value, options) => {
+  const { locale: loc, format: fmt, ...rest } = options;
+  const { locale: presetLocale, ...named } = getCallPreset(kind, fmt);
+  // An empty `_locale` (none set yet) is not a valid tag; use the runtime default instead
+  const localeCode = loc ?? presetLocale ?? (_locale || undefined);
+
+  return new /** @type {any} */ (Formatter)(localeCode, { ...named, ...rest }).format(value);
+};
+
+/**
  * Shared implementation for {@link date} and {@link time}.
  * @param {'date' | 'time'} kind `'date'` or `'time'`, selects the format table and error label.
  * @param {Date} value The date to format.
@@ -964,19 +1006,11 @@ const MESSAGE_FUNCTIONS = {
  * @throws {TypeError} If `value` is not a `Date` instance.
  */
 const formatDateTimeValue = (kind, value, options = {}) => {
-  const { locale: loc, format: fmt, ...rest } = options;
-
   if (!(value instanceof Date)) {
     throw new TypeError(`${kind}: value must be a Date instance (got ${typeof value})`);
   }
 
-  const { locale: presetLocale, ...named } = getCallPreset(kind, fmt);
-
-  // An empty `_locale` (none set yet) is not a valid tag; use the runtime default instead
-  return new Intl.DateTimeFormat(loc ?? presetLocale ?? (_locale || undefined), {
-    ...named,
-    ...rest,
-  }).format(value);
+  return formatStandaloneValue(Intl.DateTimeFormat, kind, value, options);
 };
 
 /**
@@ -1003,18 +1037,12 @@ const time = (value, options = {}) => formatDateTimeValue('time', value, options
  * @returns {string} The formatted number string.
  * @throws {TypeError} If `value` is not a number or bigint.
  */
-const number = (value, { locale: loc, format: fmt, ...rest } = {}) => {
+const number = (value, options = {}) => {
   if (typeof value !== 'number' && typeof value !== 'bigint') {
     throw new TypeError(`number: value must be a number or bigint (got ${typeof value})`);
   }
 
-  const { locale: presetLocale, ...named } = getCallPreset('number', fmt);
-
-  // An empty `_locale` (none set yet) is not a valid tag; use the runtime default instead
-  return new Intl.NumberFormat(loc ?? presetLocale ?? (_locale || undefined), {
-    ...named,
-    ...rest,
-  }).format(value);
+  return formatStandaloneValue(Intl.NumberFormat, 'number', value, options);
 };
 
 /**
