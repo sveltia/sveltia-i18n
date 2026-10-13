@@ -887,7 +887,9 @@ time-precise: 'Precise time: {$time :time precision=second}.'
 
 ### Built-in MF2 functions
 
-Built-in MF2 functions available via `DraftFunctions`:
+The following MF2 functions are available in every message.
+
+Stable functions, from `DefaultFunctions` in `messageformat`:
 
 | Function    | Purpose                                  | Example                                |
 | ----------- | ---------------------------------------- | -------------------------------------- |
@@ -895,10 +897,17 @@ Built-in MF2 functions available via `DraftFunctions`:
 | `:integer`  | Integer (no decimals) + plural selection | `{$n :integer}`                        |
 | `:percent`  | Percentage (multiplies by 100)           | `{$r :percent}`                        |
 | `:currency` | Currency formatting                      | `{$n :currency currency=USD}`          |
-| `:date`     | Date-only formatting                     | `{$d :date length=short}`              |
-| `:time`     | Time-only formatting                     | `{$t :time precision=second}`          |
-| `:datetime` | Date + time formatting                   | `{$d :datetime}`                       |
+| `:offset`   | Add or subtract a number                 | `{$n :offset subtract=1}`              |
 | `:string`   | String selector                          | `{$s :string}`                         |
+
+Draft functions, from `DraftFunctions`. These may still change as the MessageFormat 2 specification evolves:
+
+| Function    | Purpose                | Example                       |
+| ----------- | ---------------------- | ----------------------------- |
+| `:date`     | Date-only formatting   | `{$d :date length=short}`     |
+| `:time`     | Time-only formatting   | `{$t :time precision=second}` |
+| `:datetime` | Date + time formatting | `{$d :datetime}`              |
+| `:unit`     | Unit formatting        | `{$n :unit unit=meter}`       |
 
 ---
 
