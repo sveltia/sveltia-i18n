@@ -1,19 +1,18 @@
+# cSpell:ignore deepmerge gcqx minimatch
+
 allowBuilds:
   svelte-preprocess: true
   unrs-resolver: false
 
 auditConfig:
   ignoreGhsas:
-    # braces, used only in Stylelint
-    # https://github.com/advisories/GHSA-vfj7-8cjw-p6xm
-    - GHSA-vfj7-8cjw-p6xm
+    # deepmerge: dev dependencies only
+    # https://github.com/advisories/GHSA-gcqx-w48m-w2h4
+    - GHSA-gcqx-w48m-w2h4
+    # minimatch: dev dependencies only; no patch available for older versions
+    # https://github.com/advisories/GHSA-g3hv-75wg-m249
+    - GHSA-g3hv-75wg-m249
 
 engineStrict: true
 
 minimumReleaseAge: 1440
-
-overrides:
-  # security fix
-  browserslist@<=4.28.6: ^4.28.7
-  # <0.7.0 has a security vulnerability, 2.0.0 causes issues with SvelteKit
-  "cookie@<0.7.0": "^1.0.0"
